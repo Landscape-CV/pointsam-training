@@ -1,0 +1,20 @@
+# Score stock Point-SAM and our fine-tune on the test strip. Run this once, after the checkpoint is chosen.
+tile_dir: ../Dataset/pointsam_isprs/tiles
+tiles: [isprs_test_t00_00, isprs_test_t00_01, isprs_test_t00_02]
+out_dir: results/benchmark
+
+checkpoints:
+  stock: thirdparty/checkpoints/point_sam/model.safetensors
+  isprs_lora: results/isprs_lora/best.safetensors
+
+# Chosen by eye and by numbers on the val tiles only. Kevin's cloth of 2.0 m left most of the ground in place.
+csf: {resolution: 0.5, threshold: 0.5, iterations: 500, rigidness: 1}
+
+click_methods: [grid, stems, perfect]
+min_tree_points: 200
+iou_threshold: 0.5
+crop_size: 12.0
+crop_stride: 4.0
+crop_points: 10000
+group_number: 512
+group_size: 64

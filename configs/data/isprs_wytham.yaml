@@ -1,0 +1,18 @@
+# ISPRS Wytham benchmark (Cherlet et al. 2026). The authors' strips are our split:
+# train and test share no trees and sit 27 m apart. The val strip shares cut trees with both,
+# so it is only used to pick the checkpoint, never for reported results.
+source_dir: ../Dataset/real_labelled_forests/isprs_wytham
+out_dir: ../Dataset/pointsam_isprs
+strips:
+  train: wytham_train.ply
+  val: wytham_val.ply
+  test: wytham_test.ply
+
+voxel_m: 0.05        # one point per 5 cm cube
+tile_m: 30.0         # for the benchmark and for viewing in the annotator
+crop_m: 12.0         # for training
+stride_m: 6.0        # neighbouring crops overlap by half
+min_crop_points: 2048
+max_crop_points: 100000   # each training step later samples 10,000 of these
+min_crop_trees: 1
+seed: 0

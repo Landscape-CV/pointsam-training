@@ -1,0 +1,18 @@
+# Install torch first, from the index that matches the GPU's CUDA version (see docs/cluster.md).
+numpy
+scipy
+pandas
+pyyaml
+matplotlib
+scikit-learn
+laspy[lazrs]
+plyfile
+cloth-simulation-filter
+plotly
+jupyter
+pytest
+# Point-SAM's own needs
+timm
+safetensors
+hydra-core>=1.3
+huggingface_hub

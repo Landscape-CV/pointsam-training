@@ -1,0 +1,45 @@
+# Smoke test: a few steps to prove the install, data and saving all work. Not a result.
+run: smoke
+data_dir: ../Dataset/pointsam_isprs/crops
+checkpoint: thirdparty/checkpoints/point_sam/model.safetensors
+out_dir: results/smoke
+
+num_points: 10000
+num_masks: 8
+val_num_masks: 4
+min_mask_points: 40
+val_max_crops: 4
+
+batch_size: 1
+grad_accum: 2
+num_workers: 0
+max_steps: 4
+log_every: 1
+val_every: 2
+early_stop_patience: 6
+
+lr: 1.0e-4
+encoder_lr: 2.0e-4
+weight_decay: 0.01
+max_grad_norm: 1.0
+warmup_steps: 2
+min_lr_frac: 0.05
+seed: 0
+
+lora_rank: 8
+lora_alpha: 16
+group_number: 512
+group_size: 64
+
+first_round_weight: 3.0
+click_mix: {stem: 0.4, stem1: 0.2, random: 0.2, interior: 0.2}
+val_click: stem
+select_metric: val_iou_pick
+
+augmentation:
+  p_drop_ground: 0.7
+  p_density: 0.5
+  p_occlusion: 0.4
+  p_height: 0.3
+  jitter: 0.01
+  tilt_deg: 3
