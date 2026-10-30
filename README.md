@@ -36,4 +36,5 @@ docs/        cluster.md (PACE-ICE setup)
 - One forest and one scanner. A good score here says nothing yet about other sites.
 - Each crop gives the model 10,000 points over 12 m, so it can't learn fine branch detail.
 - No colour: every point has the same grey feature.
+- Crops have ground removed by the cloth filter, as in the benchmark, so understory is in training as non-tree.
 - The model picks among its 3 masks using its own confidence score, which followed mask size in earlier tests on stock Point-SAM. `val_iou_first` next to `val_iou_pick` shows how much that costs.

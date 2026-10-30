@@ -152,3 +152,71 @@ def test_whole_tile_segmentation_on_a_fake_model():
     assert labels[0] != labels[-1]
     r = score_instances(np.r_[np.full(2000, 1), np.full(2000, 2)], labels, {1: 2000, 2: 2000})
     assert r["f1"] == 1.0
+
+
+def test_mean_tree_iou_counts_missed_trees_but_matched_iou_does_not():
+    # 10 trees, and only one found perfectly
+    ids = np.repeat(np.arange(1, 11), 300)
+    pred = np.where(ids == 1, 0, -1)
+    r = score_instances(ids, pred, tree_sizes(ids))
+    assert r["mean_matched_iou"] == 1.0
+    assert r["mean_tree_iou"] == pytest.approx(0.1)
+
+
+def test_mean_tree_iou_is_zero_with_no_predictions():
+    ids, sizes = two_trees()
+    assert score_instances(ids, np.full(len(ids), -1), sizes)["mean_tree_iou"] == 0.0
+
+
+def test_click_demo_returns_three_masks_and_picks_the_highest_score():
+    from treeseg.engine.click_demo import click_positions, predict_one_click
+
+    rng = np.random.default_rng(0)
+    coords = rng.uniform(-0.5, 0.5, (2000, 3)).astype(np.float32)
+    truth = np.linalg.norm(coords - np.array([0.1, 0.1, 0.0]), axis=1) < 0.25
+    masks = np.stack([truth, ~truth])
+    stems = np.array([[int(np.flatnonzero(truth)[0])] * 2, [int(np.flatnonzero(~truth)[0])] * 2])
+    item = {"coords": torch.from_numpy(coords), "features": torch.zeros(2000, 3), "gt_masks": torch.from_numpy(masks), "stem_idx": torch.from_numpy(stems)}
+
+    class Model(FakeModel):
+        def eval(self):
+            return self
+
+    result = predict_one_click(Model(), item, 0, "stem1", device="cpu")
+    assert result["masks"].shape == (3, 2000) and result["picked"] == 1
+    assert len(result["ious"]) == 3 and 0 <= result["ious"].min() <= result["ious"].max() <= 1
+    positions = click_positions(item, 0)
+    assert set(positions) == {"stem", "upper", "random"}
+
+
+def test_click_plots_draw_without_error():
+    import matplotlib
+    matplotlib.use("Agg")
+    from treeseg.utils.view3d import plot_click_kinds, plot_mask_candidates
+
+    rng = np.random.default_rng(0)
+    coords = rng.uniform(-0.5, 0.5, (500, 3)).astype(np.float32)
+    truth = coords[:, 0] > 0
+    item = {"coords": torch.from_numpy(coords), "gt_masks": torch.from_numpy(truth[None])}
+    plot_click_kinds(item, {"stem": coords[0], "upper": coords[1], "random": coords[2]})
+    result = {"coords": coords, "truth": truth, "masks": np.stack([truth, ~truth, truth]), "ious": np.array([1.0, 0.0, 1.0]),
+              "scores": np.array([0.5, 0.9, 0.1]), "picked": 1, "click": coords[:1]}
+    plot_mask_candidates(result)
+
+
+def test_clicks_land_on_the_trunk_near_the_requested_height():
+    from treeseg.engine.clicks import clicks_at_positions
+
+    xyz = make_trunks()
+    clicks = clicks_at_positions(xyz, np.array([[5.0, 5.0], [15.0, 15.0], [99.0, 99.0]]))
+    assert len(clicks) == 2  # nothing is near the third position, so it makes no click
+    assert all(0.8 < c[0, 2] < 1.8 for c in clicks)
+    assert np.hypot(clicks[0][0, 0] - 5, clicks[0][0, 1] - 5) < 0.3
+
+
+def test_every_click_method_is_selected_by_name():
+    from treeseg.engine.clicks import CLICK_METHODS, make_clicks
+
+    assert {"grid", "stems", "treex", "perfect"} <= set(CLICK_METHODS)
+    with pytest.raises(ValueError):
+        make_clicks("nope", np.zeros((1, 3)), np.zeros(1))

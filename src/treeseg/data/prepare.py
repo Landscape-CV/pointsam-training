@@ -74,6 +74,26 @@ def write_crops(xyz: np.ndarray, ids: np.ndarray, out_dir: str, name: str, size:
     return records
 
 
+def tile_grid(xyz: np.ndarray, size: float) -> np.ndarray:
+    """Tile number of each point, on the same grid as write_tiles."""
+    cell = np.floor((xyz[:, :2] - xyz[:, :2].min(axis=0)) / size).astype(np.int64)
+    #the far edge belongs to the last tile, as it does in write_tiles
+    cell = np.minimum(cell, np.ceil(np.ptp(xyz[:, :2], axis=0) / size).astype(np.int64) - 1)
+    return cell[:, 0] * 100000 + cell[:, 1]
+
+
+def ground_by_tile(xyz: np.ndarray, size: float, csf: dict) -> np.ndarray:
+    """Run the cloth filter one tile at a time, exactly as the benchmark does, and combine the results."""
+    from .ground import csf_ground_mask
+
+    tiles = tile_grid(xyz, size)
+    ground = np.zeros(len(xyz), dtype=bool)
+    for tile in np.unique(tiles):
+        idx = np.flatnonzero(tiles == tile)
+        ground[idx] = csf_ground_mask(xyz[idx], **csf)
+    return ground
+
+
 def write_tiles(xyz: np.ndarray, ids: np.ndarray, out_dir: str, name: str, size: float) -> list[dict]:
     """Cut the strip into tiles the annotator can open: _scan.laz, _instances.npy, _meta.json."""
     os.makedirs(out_dir, exist_ok=True)

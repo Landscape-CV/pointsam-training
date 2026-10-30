@@ -4,7 +4,7 @@ import numpy as np
 
 sys.path.insert(0, "src")
 
-from treeseg.data.prepare import voxelize, window_starts, write_crops
+from treeseg.data.prepare import ground_by_tile, tile_grid, voxelize, window_starts, write_crops
 
 
 def test_voxelize_keeps_one_point_per_voxel():
@@ -58,3 +58,19 @@ def test_crops_with_too_few_trees_are_skipped(tmp_path):
     xyz = np.random.default_rng(0).uniform(0, 12, (5000, 3))
     ids = np.full(5000, -1, dtype=np.int32)  # no trees at all
     assert write_crops(xyz, ids, str(tmp_path), "t", 12.0, 6.0, 100, 500, min_trees=1) == []
+
+
+def test_tile_grid_puts_the_far_edge_in_the_last_tile():
+    xyz = np.array([[0.0, 0, 0], [29.9, 0, 0], [30.0, 0, 0], [60.0, 0, 0]])
+    tiles = tile_grid(xyz, 30.0)
+    assert tiles[0] == tiles[1] and tiles[1] != tiles[2] and tiles[2] == tiles[3]
+
+
+def test_ground_by_tile_removes_a_flat_floor_but_keeps_what_stands_on_it():
+    rng = np.random.default_rng(0)
+    floor = np.c_[rng.uniform(0, 40, (20000, 2)), rng.normal(0, 0.02, 20000)]
+    trunk = np.c_[rng.normal(20, 0.1, (3000, 2)), rng.uniform(2, 10, 3000)]
+    xyz = np.vstack([floor, trunk])
+    ground = ground_by_tile(xyz, 30.0, {"resolution": 0.5, "threshold": 0.5, "iterations": 500, "rigidness": 1})
+    assert ground[:20000].mean() > 0.95
+    assert ground[20000:].mean() < 0.02

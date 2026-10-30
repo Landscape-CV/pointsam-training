@@ -111,7 +111,7 @@ def test_dataset_item_has_the_shapes_point_sam_expects(tmp_path):
 
 def test_training_randomness_changes_by_epoch_but_validation_does_not(tmp_path):
     make_crop(tmp_path / "a.npz")
-    train = ForestCrops(str(tmp_path), num_points=500, augmentation={"jitter": 0.01})
+    train = ForestCrops(str(tmp_path), num_points=500, augmentation={"jitter": 0.01}, resample_each_epoch=True)
     first = train[0]["coords"].clone()
     train.epoch = 1
     assert not torch.equal(first, train[0]["coords"])
@@ -119,6 +119,16 @@ def test_training_randomness_changes_by_epoch_but_validation_does_not(tmp_path):
     first = val[0]["coords"].clone()
     val.epoch = 1
     assert torch.equal(first, val[0]["coords"])
+
+
+def test_with_augmentation_off_points_are_unchanged_but_still_resampled(tmp_path):
+    make_crop(tmp_path / "a.npz")
+    train = ForestCrops(str(tmp_path), num_points=500, augmentation=None, resample_each_epoch=True)
+    first = train[0]["coords"].clone()
+    train.epoch = 1
+    second = train[0]["coords"]
+    assert not torch.equal(first, second)  # a different sample of points
+    assert first.shape == second.shape
 
 
 def test_first_clicks_land_inside_the_mask():

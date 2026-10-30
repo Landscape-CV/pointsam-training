@@ -24,7 +24,7 @@ nvidia-smi
 module load anaconda3
 module load cuda/12.6.1
 source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "${TREESEG_ENV:-/storage/ice1/9/1/nsulay3/envs/pointsam}"
+conda activate "${TREESEG_ENV:-$SLURM_SUBMIT_DIR/env}"
 
 cd "$SLURM_SUBMIT_DIR"
 NOTEBOOK="${1:-notebooks/02_train.ipynb}"

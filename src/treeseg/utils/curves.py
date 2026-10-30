@@ -63,7 +63,7 @@ def plot_training_loss(history: pd.DataFrame, path: str, window: int = 8) -> Non
 def plot_validation_iou(history: pd.DataFrame, path: str, metric: str = "val_iou_pick") -> None:
     val = history[history["split"] == "val"]
     fig, ax = plt.subplots(figsize=(8, 4.2), dpi=200)
-    series = [("val_iou_pick", "Model's own pick, 1 click", BLUE, "o"), ("val_iou_first", "Best of 3 masks, 1 click", ORANGE, "s"),
+    series = [("val_iou_pick", "Model's own pick, first round", BLUE, "o"), ("val_iou_first", "Best of its 3 masks, first round", ORANGE, "s"),
               ("val_iou", "After correction clicks", AQUA, "^")]
     for column, label, color, marker in series:
         ax.plot(val["step"], val[column], color=color, linewidth=2, marker=marker, markersize=6, label=label)
@@ -71,7 +71,7 @@ def plot_validation_iou(history: pd.DataFrame, path: str, metric: str = "val_iou
         best = val.loc[val[metric].idxmax()]
         ax.annotate(f"best {best[metric]:.3f}", (best["step"], best[metric]), xytext=(0, -18),
                     textcoords="offset points", ha="center", fontsize=9, color=INK)
-    _style(ax, "Validation IoU (val strip, clicks placed using true labels)", "step", "IoU")
+    _style(ax, "Validation IoU (val strip, first round is 2 trunk clicks from true labels)", "step", "IoU")
     _epoch_axis(ax, history)
     ax.legend(frameon=False, labelcolor=MUTED)
     fig.tight_layout()

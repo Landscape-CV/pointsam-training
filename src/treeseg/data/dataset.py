@@ -4,7 +4,9 @@ dataset.py - serve 12 m crops to Point-SAM.
 Each item is one crop reduced to `num_points`, scaled into the unit sphere, with up to `num_masks`
 trees as targets and a stem click for each. Augmentation choices follow Kevin Hu's v3 recipe
 (Ecomodel jianwei/spcg, pointsam_training/dataset.py). The colour steps are gone: our data has no
-colour, so every point gets the same grey feature (0 after Point-SAM's normalisation).
+colour, so every point gets the same grey feature (0 after Point-SAM's normalisation). Label-based ground
+dropping is gone too: crops already had ground removed by the cloth filter, as in real use, so non-tree
+plants stay in and the model learns they aren't trees.
 """
 import glob
 import os
@@ -42,10 +44,8 @@ def stem_clicks(xyz: np.ndarray, member: np.ndarray, click_h: float = 1.3, upper
 
 
 def augment(xyz: np.ndarray, ids: np.ndarray, cfg: dict, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
-    """Simulate other scan conditions: no ground, lower density, occlusion holes, height-dependent loss."""
+    """Simulate other scan conditions: lower density, occlusion holes, height-dependent loss."""
     keep = np.ones(len(xyz), dtype=bool)
-    if rng.random() < cfg.get("p_drop_ground", 0.0):
-        keep &= ids > 0
     if rng.random() < cfg.get("p_density", 0.0):
         keep &= rng.random(len(xyz)) < rng.uniform(0.35, 1.0)
     if rng.random() < cfg.get("p_occlusion", 0.0):
@@ -107,7 +107,7 @@ def choose_masks(ids: np.ndarray, num_masks: int, min_points: int, rng: np.rando
 
 class ForestCrops(Dataset):
     def __init__(self, crop_dir: str, num_points: int = 10000, num_masks: int = 8, min_mask_points: int = 40,
-                 augmentation: dict | None = None, drop_ground: bool = False, seed: int = 0):
+                 augmentation: dict | None = None, resample_each_epoch: bool = False, seed: int = 0):
         self.files = sorted(glob.glob(os.path.join(crop_dir, "*.npz")))
         if not self.files:
             raise FileNotFoundError(f"no crops in {crop_dir}")
@@ -115,7 +115,7 @@ class ForestCrops(Dataset):
         self.num_masks = num_masks
         self.min_mask_points = min_mask_points
         self.augmentation = augmentation
-        self.drop_ground = drop_ground  # validation only: matches ground removal at inference
+        self.resample_each_epoch = resample_each_epoch  # new sampled points and target trees each epoch
         self.seed = seed
         self.epoch = 0  # the trainer moves this on, so training randomness changes every epoch
 
@@ -125,11 +125,9 @@ class ForestCrops(Dataset):
     def __getitem__(self, index: int) -> dict:
         with np.load(self.files[index]) as crop:
             xyz, ids = crop["xyz"].astype(np.float64), crop["instance_ids"]
-        rng = np.random.default_rng(self.seed + index * 10007 + (self.epoch * 7919 if self.augmentation else 0))
+        rng = np.random.default_rng(self.seed + index * 10007 + (self.epoch * 7919 if self.resample_each_epoch else 0))
         if self.augmentation:
             xyz, ids = augment(xyz, ids, self.augmentation, rng)
-        elif self.drop_ground and (ids > 0).sum() >= 256:
-            xyz, ids = xyz[ids > 0], ids[ids > 0]
         xyz, ids = subsample(xyz, ids, self.num_points, rng)
         masks = choose_masks(ids, self.num_masks, self.min_mask_points, rng)
         stems = np.array([stem_clicks(xyz, mask) for mask in masks], dtype=np.int64)

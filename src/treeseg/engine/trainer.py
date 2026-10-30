@@ -3,8 +3,9 @@ trainer.py - fine-tune Point-SAM on forest crops.
 
 The recipe is Kevin Hu's v3 (Ecomodel jianwei/spcg, pointsam_training/train.py): first click sampled from
 a mix of types, first round weighted highest, checkpoint picked by the mask the model itself would choose
-after one stem click (val_iou_pick). Removed: the decoder-only and full fine-tune modes and the VRAM guards.
-Added: every logged step goes to history.csv straight away, so curves survive a dropped session.
+after the first round of stem clicks (val_iou_pick). Removed: the decoder-only and full fine-tune modes and the VRAM guards.
+Added: every logged step goes to history.csv straight away, so curves survive a dropped session. Progress also
+goes to the process's real output, because a notebook run through sbatch otherwise shows prints only at the end.
 
 Validation clicks come from the true labels, so these curves measure mask quality given a good click.
 They do not measure automatic clicks. The benchmark does that.
@@ -12,6 +13,7 @@ They do not measure automatic clicks. The benchmark does that.
 import csv
 import math
 import os
+import sys
 import time
 
 import numpy as np
@@ -113,8 +115,9 @@ def collate(batch: list[dict]) -> dict:
 
 @torch.no_grad()
 def validate(model, loader, criterion, device, click_kind: str = "stem") -> dict:
-    """val_iou: after all corrections. val_iou_first: best of the 3 first masks, given the true answer.
-    val_iou_pick: the mask the model itself picks after one click, which is what inference uses."""
+    """val_iou: after all corrections. val_iou_first: best of the 3 masks from the first round of clicks, given the
+    true answer. val_iou_pick: the mask the model itself picks from that round, which is what inference uses.
+    The default "stem" click kind makes the first round 2 clicks on the trunk."""
     model.eval()
     losses, ious, firsts, picks = [], [], [], []
     for batch in loader:
@@ -173,12 +176,18 @@ def train(model, train_set, val_set, cfg: dict, out_dir: str, device: str = "cud
         with open(history_path, "a", newline="") as f:
             csv.DictWriter(f, HISTORY_FIELDS).writerow(row)
 
+    def report(message: str):
+        #the real output reaches the Slurm log as the job runs, and the kernel also copies it into the notebook
+        print(message, file=sys.__stdout__, flush=True)
+
     start = time.time()
     step, micro, epoch, best, bad_rounds, stop = 0, 0, 0, -1.0, 0, False
+    epoch_losses = []
     optimizer.zero_grad(set_to_none=True)
     while step < cfg["max_steps"] and not stop:
         epoch += 1
         train_set.epoch = epoch
+        epoch_losses = []
         for batch in loader:
             coords, features, gt = (batch[k].to(device) for k in ("coords", "features", "gt_masks"))
             kind = str(click_rng.choice(click_kinds, p=click_probs))
@@ -186,6 +195,7 @@ def train(model, train_set, val_set, cfg: dict, out_dir: str, device: str = "cud
             with torch.autocast("cuda"):
                 outputs = forward_rounds(model, coords, features, gt, points, labels)
                 loss, aux = weighted_loss(criterion, outputs, gt.flatten(0, 1), cfg["first_round_weight"])
+            epoch_losses.append(loss.item())
             scaler.scale(loss / cfg["grad_accum"]).backward()
             micro += 1
             if micro % cfg["grad_accum"]:
@@ -203,24 +213,29 @@ def train(model, train_set, val_set, cfg: dict, out_dir: str, device: str = "cud
             if step % cfg["log_every"] == 0:
                 iou_first = aux[0]["iou"].mean().item()
                 log({"split": "train", "loss": round(loss.item(), 5), "iou_first": round(iou_first, 5)})
-                print(f"step {step}/{cfg['max_steps']}  loss={loss.item():.4f}  iou_first={iou_first:.3f}", flush=True)
+                minutes = (time.time() - start) / 60
+                left = minutes / step * (cfg["max_steps"] - step)
+                report(f"epoch {epoch}  step {step}/{cfg['max_steps']}  train_loss={np.mean(epoch_losses):.4f}  "
+                       f"iou_first={iou_first:.3f}  {minutes:.1f} min, about {left:.0f} min left")
 
             if step % cfg["val_every"] == 0 or step == cfg["max_steps"]:
                 metrics = validate(model, val_loader, criterion, device, cfg["val_click"])
                 log({"split": "val", **{k: round(v, 5) for k, v in metrics.items()}})
-                print(f"val step {step}  loss={metrics['val_loss']:.4f}  iou={metrics['val_iou']:.3f}  "
-                      f"pick={metrics['val_iou_pick']:.3f}", flush=True)
+                report(f"  validation at epoch {epoch}, step {step}: val_loss={metrics['val_loss']:.4f}  "
+                       f"val_iou={metrics['val_iou']:.3f}  val_iou_pick={metrics['val_iou_pick']:.3f}")
                 save_checkpoint(model, os.path.join(out_dir, "last.safetensors"))
                 if metrics[cfg["select_metric"]] > best:
                     best, bad_rounds = metrics[cfg["select_metric"]], 0
                     save_checkpoint(model, os.path.join(out_dir, "best.safetensors"))
-                    print(f"  new best {cfg['select_metric']}={best:.3f}", flush=True)
+                    report(f"  new best {cfg['select_metric']}={best:.3f}, checkpoint saved")
                 else:
                     bad_rounds += 1
                     if bad_rounds >= cfg["early_stop_patience"]:
-                        print(f"early stop at step {step}, best {cfg['select_metric']}={best:.3f}", flush=True)
+                        report(f"early stop at step {step}, best {cfg['select_metric']}={best:.3f}")
                         stop = True
             if stop or step >= cfg["max_steps"]:
                 break
-    print(f"done in {(time.time() - start) / 60:.1f} min, best {cfg['select_metric']}={best:.3f}", flush=True)
+        report(f"end of epoch {epoch}: mean train_loss={np.mean(epoch_losses):.4f}, "
+               f"{(time.time() - start) / 60:.1f} min so far")
+    report(f"done in {(time.time() - start) / 60:.1f} min, best {cfg['select_metric']}={best:.3f}")
     return history_path

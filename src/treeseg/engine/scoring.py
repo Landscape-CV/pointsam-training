@@ -37,6 +37,8 @@ def score_instances(work_ids: np.ndarray, pred: np.ndarray, sizes: dict[int, int
     tree_ids = np.array(sorted(sizes))
     n_trees, n_preds = len(tree_ids), len(pred_ids)
     matched = []
+    #every tree's best IoU with any prediction, 0 if nothing overlaps it, so missed trees pull the average down
+    best_per_tree = np.zeros(n_trees)
     if n_trees and n_preds:
         tree_index = {t: i for i, t in enumerate(tree_ids.tolist())}
         pred_index = {p: j for j, p in enumerate(pred_ids.tolist())}
@@ -47,6 +49,7 @@ def score_instances(work_ids: np.ndarray, pred: np.ndarray, sizes: dict[int, int
             if tree in tree_index and pid in pred_index:
                 i, j = tree_index[tree], pred_index[pid]
                 iou[i, j] = inter / (sizes[tree] + pred_counts[j] - inter)
+        best_per_tree = iou.max(axis=1)
         rows, cols = linear_sum_assignment(-iou)
         matched = [iou[r, c] for r, c in zip(rows, cols) if iou[r, c] >= iou_threshold]
 
@@ -56,7 +59,8 @@ def score_instances(work_ids: np.ndarray, pred: np.ndarray, sizes: dict[int, int
     return {"f1": 2 * precision * recall / (precision + recall) if precision + recall else 0.0,
             "precision": precision, "recall": recall, "tp": tp, "fp": n_preds - tp, "fn": n_trees - tp,
             "trees": n_trees, "predictions": n_preds, "preds_ignored": ignored,
-            "mean_matched_iou": float(np.mean(matched)) if matched else float("nan")}
+            "mean_matched_iou": float(np.mean(matched)) if matched else float("nan"),
+            "mean_tree_iou": float(best_per_tree.mean()) if n_trees else 0.0}
 
 
 def click_quality(work_xyz: np.ndarray, work_ids: np.ndarray, clicks: list[np.ndarray], sizes: dict[int, int],

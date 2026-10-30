@@ -115,3 +115,46 @@ def plot_compare_3d(xyz: np.ndarray, truth: np.ndarray, pred: np.ndarray, title:
                                    marker={"size": 1.2, "color": colour_by_id(labels[picked])}), row=1, col=col)
     fig.update_layout(title=title, height=620, scene={"aspectmode": "data"}, scene2={"aspectmode": "data"})
     return fig
+
+
+def plot_click_kinds(item: dict, positions: dict, mask_index: int = 0, title: str = ""):
+    """One target tree from the side and from above, with each kind of training click marked."""
+    import matplotlib.pyplot as plt
+
+    coords, truth = item["coords"].numpy(), item["gt_masks"][mask_index].numpy()
+    styles = {"stem": ("#008300", "D", "stem click"), "upper": ("#6250d6", "s", "upper stem click"), "random": ("#e34948", "X", "random point on tree")}
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), dpi=120)
+    for ax, (u, v), xlabel, ylabel in ((axes[0], (0, 2), "x", "height"), (axes[1], (0, 1), "x", "y")):
+        ax.scatter(coords[~truth, u], coords[~truth, v], s=1, c=NOT_TREE, linewidths=0, label="other points")
+        ax.scatter(coords[truth, u], coords[truth, v], s=2, c="#eb6834", linewidths=0, label="target tree")
+        for name, point in positions.items():
+            color, marker, label = styles[name]
+            ax.scatter(point[u], point[v], s=110, c=color, marker=marker, edgecolors="white", linewidths=1, label=label, zorder=5)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_aspect("equal")
+        ax.spines[["top", "right"]].set_visible(False)
+    axes[0].legend(frameon=False, fontsize=9, loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=3, markerscale=1)
+    fig.suptitle(title, x=0.05, ha="left", fontsize=11)
+    fig.tight_layout()
+    return fig
+
+
+def plot_mask_candidates(result: dict, title: str = ""):
+    """The true tree, then the 3 masks the model returned for one click, side view. Green title: the model's pick."""
+    import matplotlib.pyplot as plt
+
+    coords, truth = result["coords"], result["truth"]
+    fig, axes = plt.subplots(1, 4, figsize=(16, 4.6), dpi=110, sharey=True)
+    panels = [("True tree", truth, None)] + [(f"Mask {i + 1}: IoU {result['ious'][i]:.2f}, model score {result['scores'][i]:.2f}", result["masks"][i], i) for i in range(3)]
+    for ax, (label, mask, index) in zip(axes, panels):
+        ax.scatter(coords[~mask, 0], coords[~mask, 2], s=0.8, c=NOT_TREE, linewidths=0)
+        ax.scatter(coords[mask, 0], coords[mask, 2], s=1.6, c="#eb6834", linewidths=0)
+        ax.scatter(result["click"][:, 0], result["click"][:, 2], s=110, c="#008300", marker="D", edgecolors="white", zorder=5)
+        picked = index == result["picked"]
+        ax.set_title(("MODEL'S PICK\n" if picked else "\n") + label, fontsize=10, color="#008300" if picked else "#0b0b0b", loc="left")
+        ax.set_aspect("equal")
+        ax.spines[["top", "right"]].set_visible(False)
+    fig.suptitle(title, x=0.02, ha="left", fontsize=11)
+    fig.tight_layout()
+    return fig

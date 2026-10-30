@@ -12,7 +12,7 @@ import pandas as pd
 
 from ..data.ground import csf_ground_mask, load_tile
 from ..models.point_sam import build_point_sam
-from .clicks import grid_clicks, perfect_clicks, stem_clicks
+from .clicks import make_clicks
 from .scoring import click_quality, score_instances, tree_sizes
 from .segment import segment_tile
 
@@ -22,24 +22,14 @@ def prepare_tile(tile_dir: str, tile: str, csf: dict, min_tree_points: int = 200
     xyz, ids = load_tile(tile_dir, tile)
     sizes = tree_sizes(ids, min_tree_points)
     keep = ~csf_ground_mask(xyz, **csf)
-    return {"name": tile, "xyz": xyz[keep], "ids": ids[keep], "sizes": sizes}
-
-
-def make_clicks(method: str, xyz: np.ndarray, ids: np.ndarray) -> list[np.ndarray]:
-    if method == "grid":
-        return grid_clicks(xyz)
-    if method == "stems":
-        return stem_clicks(xyz)
-    if method == "perfect":
-        return perfect_clicks(xyz, ids)
-    raise ValueError(f"unknown click method: {method}")
+    return {"name": tile, "xyz": xyz[keep], "ids": ids[keep], "sizes": sizes, "full_xyz": xyz}
 
 
 def run_benchmark(cfg: dict, device: str = "cuda") -> str:
     os.makedirs(cfg["out_dir"], exist_ok=True)
     path = os.path.join(cfg["out_dir"], "results.csv")
     tiles = [prepare_tile(cfg["tile_dir"], name, cfg["csf"], cfg["min_tree_points"]) for name in cfg["tiles"]]
-    clicks = {(t["name"], m): make_clicks(m, t["xyz"], t["ids"]) for t in tiles for m in cfg["click_methods"]}
+    clicks = {(t["name"], m): make_clicks(m, t["xyz"], t["ids"], t["full_xyz"]) for t in tiles for m in cfg["click_methods"]}
 
     rows = []
     for checkpoint, checkpoint_path in cfg["checkpoints"].items():
@@ -71,5 +61,5 @@ def run_benchmark(cfg: dict, device: str = "cuda") -> str:
 def summarise(path: str) -> pd.DataFrame:
     """Average over tiles, with one row per checkpoint, click source and scoring rule."""
     table = pd.read_csv(path)
-    columns = ["f1", "precision", "recall", "mean_matched_iou", "click_recall", "clicks_on_tree"]
+    columns = ["f1", "precision", "recall", "mean_tree_iou", "mean_matched_iou", "click_recall", "clicks_on_tree"]
     return table.groupby(["checkpoint", "clicks_from", "rule"], as_index=False)[columns].mean().round(3)

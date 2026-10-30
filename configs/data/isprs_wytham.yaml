@@ -2,7 +2,7 @@
 # train and test share no trees and sit 27 m apart. The val strip shares cut trees with both,
 # so it is only used to pick the checkpoint, never for reported results.
 source_dir: ../Dataset/real_labelled_forests/isprs_wytham
-out_dir: ../Dataset/pointsam_isprs
+out_dir: data/wytham_isprs
 strips:
   train: wytham_train.ply
   val: wytham_val.ply
@@ -16,3 +16,6 @@ min_crop_points: 2048
 max_crop_points: 100000   # each training step later samples 10,000 of these
 min_crop_trees: 1
 seed: 0
+
+# Ground removal for crops, the same as in the benchmark. Chosen on the val strip only.
+csf: {resolution: 0.5, threshold: 0.5, iterations: 500, rigidness: 1}

@@ -115,3 +115,66 @@ def detect_stems(xyz: np.ndarray, slice_low: float = 0.3, slice_high: float = 2.
 def stem_clicks(xyz: np.ndarray, **settings) -> list[np.ndarray]:
     """One entry per trunk: a click about 1.3 m up, plus one about 4 m up when there is one."""
     return [np.stack([s["click"]] + ([s["upper"]] if s["upper"] is not None else [])) for s in detect_stems(xyz, **settings)]
+
+
+#TreeX's stock TLS settings find no trunks on our 5 cm tiles, so these relax its density-sensitive trunk checks.
+#They are Kevin Hu's settings for sparser scans, and reached 50-65% of trees on the val tiles.
+TREEX_RELAXED = {
+    "num_workers": 1,  # more workers stalled on the Mac
+    "stem_search_dbscan_2d_min_points": 15,
+    "stem_search_dbscan_2d_eps": 0.08,
+    "stem_search_dbscan_3d_min_points": 8,
+    "stem_search_dbscan_3d_eps": 0.15,
+    "stem_search_min_cluster_points": 40,
+    "stem_search_min_cluster_height": 0.6,
+    "stem_search_min_cluster_intensity": None,
+    "stem_search_voxel_size": 0.04,
+    "stem_search_circle_fitting_min_points": 8,
+    "stem_search_circle_fitting_min_fitting_score": 20.0,
+    "stem_search_circle_fitting_min_completeness_idx": 0.15,
+    "stem_search_circle_fitting_max_std_diameter": 0.15,
+    "stem_search_circle_fitting_layer_height": 0.35,
+    "stem_search_circle_fitting_num_layers": 8,
+    "stem_search_circle_fitting_layer_overlap": 0.05,
+}
+
+
+def clicks_at_positions(xyz: np.ndarray, positions: np.ndarray, height: float = 1.3, radius: float = 0.5) -> list[np.ndarray]:
+    """Turn trunk positions (x, y) into clicks: the nearby point closest to `height` above the ground."""
+    from scipy.spatial import cKDTree
+
+    heights = BaseSurface(xyz).height(xyz)
+    xy_tree = cKDTree(xyz[:, :2])
+    clicks = []
+    for position in positions:
+        near = np.asarray(xy_tree.query_ball_point(position, r=radius))
+        if len(near):
+            cost = np.abs(heights[near] - height) + 0.5 * np.hypot(*(xyz[near, :2] - position).T)
+            clicks.append(xyz[near[np.argmin(cost)]].reshape(1, 3))
+    return clicks
+
+
+def treex_clicks(xyz: np.ndarray, full_xyz: np.ndarray) -> list[np.ndarray]:
+    """TreeX trunk detection. TreeX removes the ground itself, so it gets the whole tile, ground included."""
+    from pointtree.instance_segmentation import TreeXAlgorithm, TreeXPresetTLS
+
+    offset = full_xyz.mean(axis=0)
+    _, positions, _ = TreeXAlgorithm(**{**dict(TreeXPresetTLS()), **TREEX_RELAXED})((full_xyz - offset).astype(np.float64))
+    return clicks_at_positions(xyz, np.asarray(positions).reshape(-1, 2) + offset[:2])
+
+
+#every click method takes (points without ground, labels, whole tile) and returns a list of click arrays. To add one: write the function,
+#add it here, and name it under click_methods in a config. Nothing downstream needs to change.
+#Only "perfect" uses the labels. It's there to show how good masks can be.
+CLICK_METHODS = {
+    "grid": lambda xyz, ids, full_xyz: grid_clicks(xyz),
+    "stems": lambda xyz, ids, full_xyz: stem_clicks(xyz),
+    "treex": lambda xyz, ids, full_xyz: treex_clicks(xyz, full_xyz),
+    "perfect": lambda xyz, ids, full_xyz: perfect_clicks(xyz, ids),
+}
+
+
+def make_clicks(method: str, xyz: np.ndarray, ids: np.ndarray, full_xyz: np.ndarray | None = None) -> list[np.ndarray]:
+    if method not in CLICK_METHODS:
+        raise ValueError(f"unknown click method {method!r}, choose from {sorted(CLICK_METHODS)}")
+    return CLICK_METHODS[method](xyz, ids, xyz if full_xyz is None else full_xyz)
