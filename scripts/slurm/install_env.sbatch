@@ -55,7 +55,9 @@ import torkit3d
 
 print("torch", torch.__version__, "torchvision", torchvision.__version__, "CUDA build", torch.version.cuda)
 print("weights MB", os.path.getsize("thirdparty/checkpoints/point_sam/model.safetensors") // 10**6)
-print("train crops", len(os.listdir("data/wytham_isprs/crops/train")))
+# a fresh clone has no data yet; scripts/prepare_data.py builds it with this environment
+crops = "data/wytham_isprs/crops/train"
+print("train crops", len(os.listdir(crops)) if os.path.isdir(crops) else "none yet")
 PY
 python -m pytest tests -q -W ignore
 echo INSTALL_DONE
