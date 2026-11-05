@@ -1,0 +1,21 @@
+# How much do TreeX clicks help over the stem finder? Same 2 models, same 3 test tiles, only the clicks change.
+tile_dir: data/wytham_isprs/tiles
+tiles: [isprs_test_t00_00, isprs_test_t00_01, isprs_test_t00_02]
+out_dir: results/benchmark_clicks
+
+checkpoints:
+  stock: thirdparty/checkpoints/point_sam/model.safetensors
+  isprs_lora: results/isprs_lora/best.safetensors
+
+# Chosen by eye and by numbers on the val tiles only. Kevin's cloth of 2.0 m left most of the ground in place.
+csf: {resolution: 0.5, threshold: 0.5, iterations: 500, rigidness: 1}
+
+# treex needs pointtree installed (see docs/cluster.md). Add perfect to also score clicks from the true labels.
+click_methods: [stems, treex]
+min_tree_points: 200
+iou_threshold: 0.5
+crop_size: 12.0
+crop_stride: 4.0
+crop_points: 10000
+group_number: 512
+group_size: 64

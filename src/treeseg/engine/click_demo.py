@@ -23,8 +23,7 @@ def predict_one_click(model, item: dict, mask_index: int = 0, kind: str = "stem1
     features = item["features"].unsqueeze(0).to(device)
     gt = item["gt_masks"][mask_index:mask_index + 1].unsqueeze(0).to(device)
     stem_idx = item["stem_idx"][mask_index:mask_index + 1].unsqueeze(0).to(device)
-    points, _ = first_clicks(coords, gt, stem_idx, kind)
-    labels = torch.ones(points.shape[:2], dtype=torch.long, device=device)
+    points, labels = first_clicks(coords, gt, stem_idx, kind)
     model.eval()
     masks, scores = model.predict_masks(coords, features, points, labels, prompt_masks=None, multimask_output=True)
     masks = (masks[0] > 0).float().cpu().numpy() > 0.5

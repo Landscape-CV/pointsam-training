@@ -11,8 +11,8 @@ checkpoints:
 # Chosen by eye and by numbers on the val tiles only. Kevin's cloth of 2.0 m left most of the ground in place.
 csf: {resolution: 0.5, threshold: 0.5, iterations: 500, rigidness: 1}
 
-# treex needs pointtree installed (see docs/cluster.md)
-click_methods: [treex, stems, grid, perfect]
+# treex needs pointtree installed (see docs/cluster.md). Add perfect to also score clicks from the true labels.
+click_methods: [treex]
 min_tree_points: 200
 iou_threshold: 0.5
 crop_size: 12.0

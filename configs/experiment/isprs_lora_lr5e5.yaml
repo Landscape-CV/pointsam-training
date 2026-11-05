@@ -1,0 +1,49 @@
+# Variation on isprs_lora.yaml: half the learning rate. Compare on the val strip only.
+# Full run: LoRA fine-tune on the ISPRS train strip, checkpoint picked on the val strip.
+# Settings are Kevin Hu's v3 recipe, with three differences: the training data, no colour, and ground
+# removed by the cloth filter when crops are built, instead of by labels during training.
+run: isprs_lora_lr5e5
+data_dir: data/wytham_isprs/crops
+checkpoint: thirdparty/checkpoints/point_sam/model.safetensors
+out_dir: results/isprs_lora_lr5e5
+
+num_points: 10000
+num_masks: 8
+val_num_masks: 4
+min_mask_points: 40
+val_max_crops: 56    # the whole val strip
+
+batch_size: 1
+grad_accum: 2
+num_workers: 4
+max_steps: 3000
+log_every: 25
+val_every: 200
+early_stop_patience: 6
+
+lr: 5.0e-5
+encoder_lr: 1.0e-4
+weight_decay: 0.01
+max_grad_norm: 1.0
+warmup_steps: 150
+min_lr_frac: 0.05
+seed: 0
+
+lora_rank: 8
+lora_alpha: 16
+group_number: 512
+group_size: 64
+
+first_round_weight: 3.0
+click_mix: {stem: 0.4, stem1: 0.2, random: 0.2, interior: 0.2}
+val_click: stem
+select_metric: val_iou_pick
+
+# Set to false to train without it. Only sampling of points and target trees still varies each epoch.
+use_augmentation: true
+augmentation:
+  p_density: 0.5
+  p_occlusion: 0.4
+  p_height: 0.3
+  jitter: 0.01
+  tilt_deg: 3

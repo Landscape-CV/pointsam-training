@@ -110,7 +110,7 @@ def make_all(history_path: str, out_dir: str) -> dict:
 def plot_f1_bars(summary: pd.DataFrame, path: str, rule: str = "ignore_non_tree") -> None:
     """Mean F1 per click source, stock next to fine-tuned. Each bar is labelled, so colour isn't needed to read it."""
     table = summary[summary["rule"] == rule]
-    sources = [s for s in ("grid", "stems", "perfect") if s in set(table["clicks_from"])]
+    sources = [s for s in ("treex", "grid", "stems", "perfect") if s in set(table["clicks_from"])]
     checkpoints = list(dict.fromkeys(table["checkpoint"]))
     fig, ax = plt.subplots(figsize=(8, 4.2), dpi=200)
     width = 0.8 / max(len(checkpoints), 1)

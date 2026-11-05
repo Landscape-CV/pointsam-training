@@ -31,6 +31,8 @@ sbatch scripts/slurm/run_notebook.sbatch notebooks/02_train.ipynb configs/experi
 
 Check it with `squeue -u $USER`, and cancel with `scancel <jobid>`. Watch training live with `tail -F slurm_outs/slurm_<jobid>.out`. The finished notebook is saved to `results/notebooks/`.
 
+For runs you want to find later, use `bash scripts/slurm/submit.sh <notebook> <config>` instead. It gives the job a readable name and writes its log to a folder for what the run is testing, such as `slurm_outs/augmentation_test/no_augmentation_<jobid>.out`. Slurm does not create that folder itself, so the script does.
+
 - **Order:** `smoke.yaml` first, then `isprs_lora.yaml`, then `03_benchmark.ipynb` with `configs/experiment/benchmark.yaml`.
 - **GPU type:** to see what's free, run `sinfo -p ice-gpu -o "%G %t %D"`. To use another NVIDIA GPU, change `--gres` in the sbatch file. AMD GPUs won't work.
 - **Queue limit:** `ice-gpu` jobs can run for up to 16 hours.
