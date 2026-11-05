@@ -24,7 +24,10 @@ export PIP_CACHE_DIR="$ROOT/../.cache/pip" CONDA_PKGS_DIRS="$ROOT/../.conda_pkgs
 module load anaconda3/2023.03 cuda/12.6.1
 source "$(conda info --base)/etc/profile.d/conda.sh"
 
+# the Point-SAM commit every result so far was made with
+POINT_SAM_COMMIT=25f4fd9675479f3c951e830771595855ff7ed466
 [ -d thirdparty/Point-SAM ] || git clone -q https://github.com/zyc00/Point-SAM.git thirdparty/Point-SAM
+git -C thirdparty/Point-SAM checkout -q "$POINT_SAM_COMMIT"
 git -C thirdparty/Point-SAM submodule update --init -q third_party/torkit3d
 echo "Point-SAM commit: $(git -C thirdparty/Point-SAM rev-parse --short HEAD)"
 
@@ -32,8 +35,11 @@ echo "Point-SAM commit: $(git -C thirdparty/Point-SAM rev-parse --short HEAD)"
 conda activate "$ROOT/env"
 # torch and torchvision must come from the same CUDA build. timm needs torchvision, and installing it from
 # the default index gives a mismatched build that fails on import ("operator torchvision::nms does not exist")
-pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cu126
-pip install -q -r requirements.txt
+# requirements-lock.txt holds every package at the version our results were made with. PyPI is added because
+# some locked dependencies of torch were later upgraded from there and the CUDA index may not carry them.
+pip install -q -c requirements-lock.txt torch torchvision --index-url https://download.pytorch.org/whl/cu126 \
+    --extra-index-url https://pypi.org/simple
+pip install -q -c requirements-lock.txt -r requirements.txt
 
 # --no-build-isolation lets the build see the torch installed above. C++20 is for newer PyTorch headers.
 # FORCE_CUDA builds the GPU code on a node with no GPU; the arch list covers ICE's NVIDIA generations.
