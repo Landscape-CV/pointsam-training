@@ -8,7 +8,7 @@ Login nodes kill heavy work, so installs and runs go through Slurm jobs. Run eve
 
 ### 1. Clone
 
-The repo is private, so git on ICE needs a GitHub login. Make a personal access token on GitHub (Settings, Developer settings, Personal access tokens, with read access to this repo) and paste it when git asks for a password.
+To send changes back, fork the repo on GitHub first and clone your fork instead; pushing to it from ICE needs a GitHub personal access token as the password.
 
 ```bash
 cd ~/scratch
