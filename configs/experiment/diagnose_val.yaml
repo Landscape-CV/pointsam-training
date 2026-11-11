@@ -1,0 +1,27 @@
+# Why is tile F1 low: the clicks, the masks or the merging? Val tiles only, so the test strip stays untouched.
+# Each click method is scored before merging (raw_recall) and after (recall), next to full TreeX with no model.
+tile_dir: data/wytham_isprs/tiles
+tiles: [isprs_val_t00_00, isprs_val_t00_01, isprs_val_t00_02]
+out_dir: results/diagnose_val
+
+checkpoints:
+  isprs_lora: results/isprs_lora/best.safetensors
+
+csf: {resolution: 0.5, threshold: 0.5, iterations: 500, rigidness: 1}
+
+# perfect is one click per tree from the true labels: the best any click finder could do
+click_methods: [perfect, treex, stems]
+# segment the tile with no model. treex_full keeps the tree labels that the treex clicks throw away
+baselines: [treex_full]
+# keep every raw mask, so 04_inference_steps can replay merging without a GPU
+save_masks: true
+min_tree_points: 200
+iou_threshold: 0.5
+crop_size: 12.0
+crop_stride: 4.0
+crop_points: 10000
+group_number: 512
+group_size: 64
+
+# also score the checkpoint on this strip's 12 m crops, with clicks from the true labels
+crop_split: val

@@ -7,8 +7,8 @@ import torch
 sys.path.insert(0, "src")
 
 from treeseg.engine.clicks import BaseSurface, grid_clicks, perfect_clicks, stem_clicks
-from treeseg.engine.scoring import click_quality, score_instances, tree_sizes
-from treeseg.engine.segment import fuse_masks, segment_tile
+from treeseg.engine.scoring import click_quality, match_instances, score_instances, score_raw_masks, tree_sizes
+from treeseg.engine.segment import click_candidates, fuse_masks, load_masks, save_masks, segment_tile
 
 
 def two_trees():
@@ -220,3 +220,77 @@ def test_every_click_method_is_selected_by_name():
     assert {"grid", "stems", "treex", "perfect"} <= set(CLICK_METHODS)
     with pytest.raises(ValueError):
         make_clicks("nope", np.zeros((1, 3)), np.zeros(1))
+
+
+def test_matching_lists_the_pairs_the_score_counts():
+    ids, sizes = two_trees()
+    pred = np.r_[np.full(300, 7), np.full(150, 9), np.full(250, -1)]  # tree 1 found, tree 2 half found
+    match = match_instances(ids, pred, sizes)
+    assert match["matches"][1] == (7, 1.0) and match["matches"][2] == (9, 0.5)
+    assert score_instances(ids, pred, sizes)["tp"] == len(match["matches"]) == 2
+    assert 2 not in match_instances(ids, pred, sizes, iou_threshold=0.6)["matches"]
+
+
+def test_matching_reports_ignored_predictions():
+    ids, sizes = two_trees()
+    pred = np.r_[np.full(600, -1), np.full(100, 3)]  # only on non-tree points
+    assert match_instances(ids, pred, sizes, ignore_non_tree_preds=True)["ignored"] == [3]
+
+
+def test_raw_masks_are_scored_one_tree_at_a_time():
+    ids, sizes = two_trees()
+    raw = score_raw_masks(ids, [np.arange(0, 300), np.arange(300, 400), np.arange(600, 700)], sizes)
+    assert raw["best"][1] == (0, 1.0) and raw["best"][2][0] == 1 and raw["best"][2][1] == pytest.approx(1 / 3)
+    assert raw["raw_trees_found"] == 1 and raw["raw_recall"] == 0.5 and raw["raw_masks"] == 3
+    assert score_raw_masks(ids, [], sizes)["raw_recall"] == 0.0
+
+
+def test_fusion_reports_which_masks_were_joined_and_dropped():
+    a, b, far, tiny = np.arange(0, 100), np.arange(50, 150), np.arange(300, 400), np.arange(500, 505)
+    labels, groups = fuse_masks(600, [a, b, far, tiny], [np.ones(len(m)) for m in (a, b, far, tiny)], [1.0] * 4, [75, 80, 350, 502],
+                                min_points=10, return_groups=True)
+    assert groups[0] == groups[1] == labels[0] and groups[2] == labels[350] != groups[0] and groups[3] == -1
+    assert fuse_masks(10, [], [], [], [], return_groups=True)[1].shape == (0,)
+
+
+def test_saved_masks_merge_to_the_same_labels(tmp_path):
+    clicks = [np.array([[1.0, 2.0, 3.0], [1.0, 2.0, 5.0]]), np.array([[9.0, 9.0, 1.0]])]
+    masks, logits = [np.arange(0, 100), np.arange(200, 320)], [np.linspace(0.5, 2, 100), np.linspace(1, 3, 120)]
+    save_masks(str(tmp_path / "m.npz"), clicks, masks, logits, [0.5, 0.75], [10, 250])
+    saved = load_masks(str(tmp_path / "m.npz"))
+    assert len(saved["clicks"]) == 2 and saved["clicks"][0].shape == (2, 3) and np.allclose(saved["clicks"][1], clicks[1])
+    again = fuse_masks(400, saved["masks"], saved["logits"], saved["scores"], saved["seeds"], min_points=10)
+    assert (again == fuse_masks(400, masks, logits, [0.5, 0.75], [10, 250], min_points=10)).all()
+    save_masks(str(tmp_path / "none.npz"), [], [], [], [], [])
+    assert load_masks(str(tmp_path / "none.npz"))["masks"] == []
+
+
+def test_one_click_gives_three_candidates_on_the_sampled_points():
+    rng = np.random.default_rng(0)
+    xyz = np.vstack([rng.normal([3, 3, 3], 0.3, (2000, 3)), rng.normal([30, 30, 3], 0.3, (500, 3))])
+    result = click_candidates(FakeModel(), xyz, np.array([[3.0, 3.0, 3.0]]), crop_points=1000, device="cpu")
+    assert len(result["crop_index"]) == 2000 and result["masks"].shape == (3, 1000) and result["picked"] == 1
+
+
+def test_benchmark_scores_baselines_and_clicks_before_and_after_merging(tmp_path, monkeypatch):
+    from treeseg.engine import benchmark
+
+    rng = np.random.default_rng(0)
+    xyz = np.vstack([rng.normal([3, 3, 3], 0.3, (2000, 3)), rng.normal([9, 9, 3], 0.3, (2000, 3))])
+    ids = np.r_[np.full(2000, 1), np.full(2000, 2)]
+    tile = {"name": "t", "xyz": xyz, "ids": ids, "sizes": {1: 2000, 2: 2000}, "full_xyz": xyz, "keep": np.ones(4000, dtype=bool)}
+    monkeypatch.setattr(benchmark, "prepare_tile", lambda *args: tile)
+    monkeypatch.setattr(benchmark, "build_point_sam", lambda *args: FakeModel())
+    monkeypatch.setattr(FakeModel, "to", lambda self, device: self, raising=False)
+    monkeypatch.setattr(FakeModel, "eval", lambda self: self, raising=False)
+    #a baseline that finds only the first tree
+    monkeypatch.setitem(benchmark.BASELINES, "half", lambda tile: (np.where(tile["ids"] == 1, 0, -1), [np.array([[3.0, 3.0, 3.0]])]))
+    cfg = {"out_dir": str(tmp_path), "tile_dir": "", "tiles": ["t"], "csf": {}, "min_tree_points": 200, "checkpoints": {"fake": ""},
+           "click_methods": ["perfect"], "baselines": ["half"], "save_masks": True, "iou_threshold": 0.5, "crop_size": 12.0,
+           "crop_stride": 4.0, "crop_points": 10000, "group_number": 512, "group_size": 64}
+    table = benchmark.summarise(benchmark.run_benchmark(cfg, device="cpu"))
+    strict = table[table["rule"] == "strict"].set_index("checkpoint")
+    assert strict.loc["half", "recall"] == 0.5 and np.isnan(strict.loc["half", "raw_recall"])
+    assert strict.loc["fake", "f1"] == 1.0 and strict.loc["fake", "raw_recall"] == 1.0
+    saved = load_masks(str(tmp_path / "fake_t_perfect_masks.npz"))
+    assert len(saved["masks"]) == len(saved["clicks"]) == 2 and (tmp_path / "half_t_none_pred.npy").exists()

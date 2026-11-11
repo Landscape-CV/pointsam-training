@@ -154,13 +154,19 @@ def clicks_at_positions(xyz: np.ndarray, positions: np.ndarray, height: float = 
     return clicks
 
 
-def treex_clicks(xyz: np.ndarray, full_xyz: np.ndarray) -> list[np.ndarray]:
-    """TreeX trunk detection. TreeX removes the ground itself, so it gets the whole tile, ground included."""
+def treex_segment(full_xyz: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The whole TreeX algorithm: trunk detection, then growing each crown out from its trunk. It removes the
+    ground itself, so it gets the whole tile. Returns a tree label per point (-1 for none) and trunk positions (x, y)."""
     from pointtree.instance_segmentation import TreeXAlgorithm, TreeXPresetTLS
 
     offset = full_xyz.mean(axis=0)
-    _, positions, _ = TreeXAlgorithm(**{**dict(TreeXPresetTLS()), **TREEX_RELAXED})((full_xyz - offset).astype(np.float64))
-    return clicks_at_positions(xyz, np.asarray(positions).reshape(-1, 2) + offset[:2])
+    labels, positions, _ = TreeXAlgorithm(**{**dict(TreeXPresetTLS()), **TREEX_RELAXED})((full_xyz - offset).astype(np.float64))
+    return np.asarray(labels).astype(np.int32), np.asarray(positions).reshape(-1, 2) + offset[:2]
+
+
+def treex_clicks(xyz: np.ndarray, full_xyz: np.ndarray) -> list[np.ndarray]:
+    """TreeX trunk detection only: its tree labels are not used, and each trunk becomes one click."""
+    return clicks_at_positions(xyz, treex_segment(full_xyz)[1])
 
 
 #every click method takes (points without ground, labels, whole tile) and returns a list of click arrays. To add one: write the function,

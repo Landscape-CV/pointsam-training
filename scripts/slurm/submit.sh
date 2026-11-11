@@ -20,9 +20,9 @@ case "$(basename "$NOTEBOOK" .ipynb)/$(basename "$CONFIG" .yaml)" in
     */isprs_lora_lr5e5)       FOLDER=learning_rate_test; NAME=lr_5e-5 ;;
     */isprs_lora_lr2e4)       FOLDER=learning_rate_test; NAME=lr_2e-4 ;;
     */isprs_lora_batch4)      FOLDER=batch_size_test;    NAME=batch_4 ;;
-    04_test_crops/benchmark)  FOLDER=test_scoring;       NAME=test_crops ;;
     03_benchmark/benchmark)   FOLDER=test_scoring;       NAME=f1_benchmark ;;
     03_benchmark/benchmark_clicks) FOLDER=test_scoring;  NAME=click_comparison ;;
+    */diagnose_val)           FOLDER=diagnosis;          NAME=diagnose_val ;;
     *)                        FOLDER=other;              NAME="$(basename "$CONFIG" .yaml)" ;;
 esac
 

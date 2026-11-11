@@ -65,12 +65,17 @@ def predict_click_masks(model, xyz: np.ndarray, click_groups: list[np.ndarray], 
     return masks, logits, scores, seeds
 
 
-def fuse_masks(n_points: int, masks: list, logits: list, scores: list, seeds: list, containment: float = 0.8, min_points: int = 50) -> np.ndarray:
+def fuse_masks(n_points: int, masks: list, logits: list, scores: list, seeds: list, containment: float = 0.8, min_points: int = 50,
+               return_groups: bool = False):
     """One label per point. Masks are the same tree if each contains the other's seed, or one sits at least
-    `containment` inside the other. A point claimed by several trees goes to the highest logit."""
+    `containment` inside the other. A point claimed by several trees goes to the highest logit.
+
+    With return_groups, also returns each mask's final label: masks sharing a label were joined, and -1 means
+    the mask was dropped (too small, or every point went to a more confident mask)."""
     k = len(masks)
     if k == 0:
-        return np.full(n_points, -1, dtype=np.int32)
+        empty = np.full(n_points, -1, dtype=np.int32)
+        return (empty, np.zeros(0, dtype=np.int32)) if return_groups else empty
     parent = list(range(k))
 
     def root(a: int) -> int:
@@ -130,7 +135,52 @@ def fuse_masks(n_points: int, masks: list, logits: list, scores: list, seeds: li
     ids, inverse, counts = np.unique(labels[labels >= 0], return_inverse=True, return_counts=True)
     new_ids = np.where(counts >= min_points, np.cumsum(counts >= min_points) - 1, -1)
     out[labels >= 0] = new_ids[inverse]
-    return out
+    if not return_groups:
+        return out
+    final = dict(zip(ids.tolist(), new_ids.tolist()))
+    return out, np.array([final.get(root(i), -1) for i in range(k)], dtype=np.int32)
+
+
+def click_candidates(model, xyz: np.ndarray, group: np.ndarray, crop_size: float = 12.0, crop_points: int = 10000,
+                     device: str = "cuda", seed: int = 0) -> dict:
+    """One click group in a crop centred on it: the sampled points the model sees, its 3 candidate masks and
+    their scores. For looking at a single click; predict_click_masks is what scores a tile."""
+    rng = np.random.default_rng(seed)
+    idx = np.flatnonzero((np.abs(xyz[:, :2] - group[0, :2]) <= crop_size / 2).all(axis=1))
+    sample = idx if len(idx) <= crop_points else rng.choice(idx, crop_points, replace=False)
+    points = xyz[sample]
+    mean = points.mean(axis=0)
+    radius = float(np.linalg.norm(points - mean, axis=1).max()) or 1.0
+    coords = torch.from_numpy(((points - mean) / radius).astype(np.float32)).unsqueeze(0).to(device)
+    prompts = torch.from_numpy(np.clip((group - mean) / radius, -1.0, 1.0).astype(np.float32)).unsqueeze(0).to(device)
+    with torch.no_grad():
+        out_masks, out_scores = model.predict_masks(coords, torch.zeros_like(coords), prompts,
+                                                    torch.ones(prompts.shape[:2], dtype=torch.int64, device=device),
+                                                    prompt_masks=None, multimask_output=True)
+    scores = out_scores[0].float().cpu().numpy()
+    return {"crop_index": idx, "sample_index": sample, "masks": (out_masks[0] > 0).cpu().numpy(), "scores": scores,
+            "picked": int(scores.argmax()), "click": group}
+
+
+def save_masks(path: str, clicks: list[np.ndarray], masks: list, logits: list, scores: list, seeds: list) -> None:
+    """Everything predict_click_masks returned, plus the clicks, so merging can be replayed later without a GPU."""
+    rows = [np.column_stack([np.full(len(c), g), c]) for g, c in enumerate(clicks)]
+    np.savez_compressed(path, clicks=np.vstack(rows) if rows else np.zeros((0, 4)),
+                        lengths=np.array([len(m) for m in masks], dtype=np.int64),
+                        points=np.concatenate(masks).astype(np.int32) if masks else np.zeros(0, dtype=np.int32),
+                        logits=np.concatenate(logits).astype(np.float16) if logits else np.zeros(0, dtype=np.float16),
+                        scores=np.array(scores, dtype=np.float32), seeds=np.array(seeds, dtype=np.int64))
+
+
+def load_masks(path: str) -> dict:
+    """Back to lists, in the order fuse_masks takes them: masks, logits, scores, seeds. Clicks come back grouped."""
+    saved = np.load(path)
+    cuts = np.cumsum(saved["lengths"])[:-1]
+    clicks = saved["clicks"]
+    split = (lambda values: np.split(values, cuts)) if len(saved["lengths"]) else (lambda values: [])
+    return {"clicks": [clicks[clicks[:, 0] == g, 1:] for g in np.unique(clicks[:, 0])],
+            "masks": split(saved["points"].astype(np.int64)), "logits": split(saved["logits"].astype(np.float32)),
+            "scores": saved["scores"].tolist(), "seeds": saved["seeds"].tolist()}
 
 
 def segment_tile(model, xyz: np.ndarray, click_groups: list[np.ndarray], device: str = "cuda", **crop_settings) -> np.ndarray:

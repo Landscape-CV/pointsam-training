@@ -14,7 +14,7 @@ Training and scoring need an NVIDIA GPU, so they run on PACE-ICE. [docs/cluster.
 4. **Add TreeX** with `sbatch scripts/slurm/install_treex.sbatch`, if you want TreeX clicks.
 5. **Smoke test:** `bash scripts/slurm/submit.sh notebooks/02_train.ipynb configs/experiment/smoke.yaml`, then the full run with `isprs_lora.yaml`.
 
-Only `01_auto_prompt.ipynb` runs without a GPU, for example on a Mac with the packages in `requirements.txt` plus TreeX.
+`01_auto_prompt.ipynb` runs without a GPU, for example on a Mac with the packages in `requirements.txt` plus TreeX. `04_inference_steps.ipynb` does too, once the masks from an ICE run are copied over.
 
 ## Data
 
@@ -37,11 +37,22 @@ src/treeseg/
   engine/    trainer.py, clicks.py, segment.py, scoring.py, benchmark.py
   utils/     curves.py, view3d.py
 configs/     data and experiment settings
-notebooks/   01_auto_prompt (no GPU), 02_train, 03_benchmark, 04_test_crops
+notebooks/   01_auto_prompt (no GPU), 02_train, 03_benchmark, 04_inference_steps
 scripts/     prepare_data.py, inspect_ground.py, slurm/
 tests/       run with: python -m pytest tests
 docs/        cluster.md (PACE-ICE setup)
 ```
+
+## Notebooks
+
+| Notebook | Question it answers | GPU |
+|---|---|---|
+| `01_auto_prompt` | Is the ground removed, and do automatic clicks land on trees? | No |
+| `02_train` | Does training work? Curves, one click before and after, one whole val tile | Yes |
+| `03_benchmark` | The numbers: crop scores with label clicks, then whole-tile scores | Yes |
+| `04_inference_steps` | The pictures: one tile through every stage (ground, clicks, masks, merging, scoring) | Live on ICE, or replays saved masks on a Mac |
+
+`03_benchmark` and `04_inference_steps` call the same code in `src/treeseg/engine/`, so the pictures and the numbers agree.
 
 ## Clicks and scores
 
@@ -51,6 +62,8 @@ Point-SAM outlines whatever you click on, so every score depends on where the cl
 - **Test:** software picks the clicks, as in real use. `stems` is our stem finder, up to 2 clicks per tree. `treex` is the TreeX trunk detector, 1 click about 1.3 m up. `perfect` is 1 click per tree from the labels, an upper bound.
 - `val_iou_pick`: IoU of the mask the model picks for itself. This is the number used to choose the checkpoint.
 - `f1`: trees separated correctly, counting a match at IoU 0.5 or above. Missed trees and made-up trees both lower it.
+- `raw_recall`: share of trees where a single mask reaches IoU 0.5 before the masks are merged. Next to `recall`, it shows what merging costs.
+- `treex_full`: a baseline with no model, TreeX segmenting the tile by itself.
 - `mean_tree_iou`: each real tree's best overlap, missed trees counting as 0. `mean_matched_iou`: overlap for matched trees only.
 - `ignore_non_tree` skips predictions that land mostly on non-tree points; `strict` counts them as wrong.
 
@@ -72,13 +85,23 @@ Test strip, F1 at IoU 0.5, `ignore_non_tree`, mean of 3 tiles (`benchmark_clicks
 
 Training helps a lot. TreeX clicks reach more trees (48% against 28%) but F1 barely moves, because recall is about 0.12: the outlines, not the clicks, are the limit now. Tiles range from 0.10 to 0.31. The two click methods also use different numbers of clicks per tree. The test strip has now been used once, so tune on the val strip only.
 
+Baseline, TreeX alone with no model, on the 3 **val** tiles (measured on a Mac, same scoring, our relaxed TreeX settings):
+
+| Rule | F1 | Precision | Recall | IoU of matches |
+|---|---|---|---|---|
+| `ignore_non_tree` | 0.668 | 0.932 | 0.521 | 0.833 |
+| `strict` | 0.631 | 0.808 | 0.521 | 0.833 |
+
+These are val tiles and the Point-SAM numbers above are test tiles, so the two tables are not yet a like-for-like comparison. `diagnose_val.yaml` scores both on the same val tiles.
+
 ## What a run writes
 
 Nothing below is in git; copy anything you want to keep out of scratch.
 
 - `results/<run>/`: `best.safetensors` (LoRA merged in, loads like stock Point-SAM), `last.safetensors`, `history.csv` (every logged step and validation) and `figures/`.
 - `results/notebooks/`: the executed notebook for each run, with all outputs.
-- `results/benchmark_clicks/`: `results.csv` (per tile and method), `summary.csv`, `f1_bars.png`.
+- `results/benchmark_clicks/`: `results.csv` (per tile and method), `summary.csv`, `f1_bars.png`, and one `_pred.npy` per result.
+- `results/diagnose_val/`: the same, plus `stages.csv`, `crop_scores_val.csv`, every raw mask as `_masks.npz`, and `inspect/` with the figures from `04_inference_steps`.
 - `slurm_outs/<what it tests>/`: job logs.
 
 The `isprs_lora` checkpoints are in Nikhil's ICE scratch folder. A full training run takes about 20 minutes on an H100, so retraining is usually quicker than copying.
@@ -100,8 +123,8 @@ All in `configs/experiment/<run>.yaml`, except crop size, which lives in `config
 
 ## Next
 
-- Hyperparameter sweep on the val strip: the three configs above, then crop size and points per crop.
-- Find why outlines fail: sort val-strip failures into spills onto neighbours, cut-short outlines and empty clicks.
+- Run `diagnose_val.yaml` to see whether clicks, masks or merging lose the trees, and compare with TreeX alone on the same tiles.
+- Hyperparameter sweep on the val strip, scored with tile F1: the three configs above, then crop size and points per crop.
 - Fair click comparison: the same number of clicks per tree for `stems` and `treex`.
 - Run the trained model on island scans, and label island trees in `instance-annotator`.
 

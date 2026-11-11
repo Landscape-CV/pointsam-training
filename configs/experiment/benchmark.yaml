@@ -20,3 +20,6 @@ crop_stride: 4.0
 crop_points: 10000
 group_number: 512
 group_size: 64
+
+# also score every checkpoint on this strip's 12 m crops, with clicks from the true labels
+crop_split: test

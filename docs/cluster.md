@@ -63,8 +63,9 @@ bash scripts/slurm/submit.sh notebooks/02_train.ipynb configs/experiment/smoke.y
 This gives the job a readable name and writes its log to a folder for what the run is testing, such as `slurm_outs/smoke_tests/smoke_<jobid>.out`. The finished notebook, with its outputs, is saved to `results/notebooks/`. Anything after the config goes to `sbatch`, for example `--dependency=afterok:<jobid>` to start after another job succeeds.
 
 - **Check and cancel:** `squeue -u $USER`, `scancel <jobid>`. Watch a run live with `tail -F <log path>`.
-- **Order:** `smoke.yaml` first (4 steps), then `isprs_lora.yaml` (about 20 minutes on an H100), then `03_benchmark.ipynb` with `configs/experiment/benchmark_clicks.yaml`.
-- **Test strip:** score it once, after choosing the checkpoint. Tune on the val strip only.
+- **Order:** `smoke.yaml` first (4 steps), then `isprs_lora.yaml` (about 20 minutes on an H100), then `03_benchmark.ipynb` with `configs/experiment/diagnose_val.yaml`, which scores the val tiles and saves every mask.
+- **Look at one tile:** copy `results/diagnose_val/*_masks.npz` and `*_pred.npy` to the same folder on a Mac and open `04_inference_steps.ipynb` there, or run it live in OnDemand Jupyter.
+- **Test strip:** score it once, after choosing the checkpoint (`benchmark.yaml`). Tune on the val strip only.
 - **New experiment:** copy a config in `configs/experiment/`, change it, and add a line for it in `submit.sh` so its log goes to the right folder. Unknown configs go to `slurm_outs/other/`.
 - **GPU type:** `run_notebook.sbatch` asks for an H100. To see what's free, run `sinfo -p ice-gpu -o "%G %t %D"`; to use another NVIDIA GPU, change `--gres` there. AMD GPUs won't work.
 - **Time limit:** `ice-gpu` jobs can run for up to 16 hours; `run_notebook.sbatch` asks for 3.
