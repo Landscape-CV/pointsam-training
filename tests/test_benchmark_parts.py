@@ -256,13 +256,15 @@ def test_fusion_reports_which_masks_were_joined_and_dropped():
 def test_saved_masks_merge_to_the_same_labels(tmp_path):
     clicks = [np.array([[1.0, 2.0, 3.0], [1.0, 2.0, 5.0]]), np.array([[9.0, 9.0, 1.0]])]
     masks, logits = [np.arange(0, 100), np.arange(200, 320)], [np.linspace(0.5, 2, 100), np.linspace(1, 3, 120)]
-    save_masks(str(tmp_path / "m.npz"), clicks, masks, logits, [0.5, 0.75], [10, 250])
+    keep = np.arange(1000) % 3 > 0
+    save_masks(str(tmp_path / "m.npz"), clicks, masks, logits, [0.5, 0.75], [10, 250], keep=keep)
     saved = load_masks(str(tmp_path / "m.npz"))
+    assert (saved["keep"] == keep).all()
     assert len(saved["clicks"]) == 2 and saved["clicks"][0].shape == (2, 3) and np.allclose(saved["clicks"][1], clicks[1])
     again = fuse_masks(400, saved["masks"], saved["logits"], saved["scores"], saved["seeds"], min_points=10)
     assert (again == fuse_masks(400, masks, logits, [0.5, 0.75], [10, 250], min_points=10)).all()
     save_masks(str(tmp_path / "none.npz"), [], [], [], [], [])
-    assert load_masks(str(tmp_path / "none.npz"))["masks"] == []
+    assert load_masks(str(tmp_path / "none.npz"))["masks"] == [] and load_masks(str(tmp_path / "none.npz"))["keep"] is None
 
 
 def test_one_click_gives_three_candidates_on_the_sampled_points():
@@ -294,3 +296,29 @@ def test_benchmark_scores_baselines_and_clicks_before_and_after_merging(tmp_path
     assert strict.loc["fake", "f1"] == 1.0 and strict.loc["fake", "raw_recall"] == 1.0
     saved = load_masks(str(tmp_path / "fake_t_perfect_masks.npz"))
     assert len(saved["masks"]) == len(saved["clicks"]) == 2 and (tmp_path / "half_t_none_pred.npy").exists()
+
+
+class RecordingModel(FakeModel):
+    """Keeps the prompts it was given, so a test can see which clicks were sent as positive and negative."""
+
+    def predict_masks(self, coords, features, prompts, labels, prompt_masks=None, multimask_output=True):
+        self.prompts, self.labels = prompts, labels
+        return super().predict_masks(coords, features, prompts, labels, prompt_masks, multimask_output)
+
+
+def test_neighbouring_clicks_are_sent_as_negative_clicks():
+    from treeseg.engine.segment import predict_click_masks
+
+    rng = np.random.default_rng(0)
+    xyz = np.vstack([rng.normal([3, 3, 3], 0.3, (2000, 3)), rng.normal([5, 3, 3], 0.3, (2000, 3)), rng.normal([30, 30, 3], 0.3, (2000, 3))])
+    clicks = [np.array([[3.0, 3.0, 3.0]]), np.array([[5.0, 3.0, 3.0]]), np.array([[30.0, 30.0, 3.0]])]
+    model = RecordingModel()
+    predict_click_masks(model, xyz[:4000], clicks[:2], device="cpu", crop_stride=12.0)
+    assert model.labels.tolist() == [[1], [1]]  # no negatives unless asked for
+    predict_click_masks(model, xyz[:4000], clicks[:2], device="cpu", crop_stride=12.0, negative_clicks=3)
+    #each of the two close trees gets its own click as positive and the other's as negative
+    assert model.labels.tolist() == [[1, 0], [1, 0]]
+    assert torch.allclose(model.prompts[0, 1], model.prompts[1, 0]) and torch.allclose(model.prompts[0, 0], model.prompts[1, 1])
+    #a tree further away than the radius is never a negative
+    predict_click_masks(model, xyz, clicks, device="cpu", crop_stride=12.0, negative_clicks=3, negative_radius=6.0)
+    assert model.labels.sum(dim=1).min() >= 1 and model.labels.shape[1] <= 2

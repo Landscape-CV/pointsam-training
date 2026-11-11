@@ -1,0 +1,26 @@
+# Do "not this tree" clicks stop masks spilling onto neighbours? Val tiles only.
+# Each tree's prompt gets its own click as positive, plus the clicks of its nearest neighbours as negative.
+# Compare the rows with and without _neg in the checkpoint name. No training is involved.
+tile_dir: data/wytham_isprs/tiles
+tiles: [isprs_val_t00_00, isprs_val_t00_01, isprs_val_t00_02]
+out_dir: results/negative_clicks
+
+checkpoints:
+  isprs_lora: results/isprs_lora/best.safetensors
+
+csf: {resolution: 0.5, threshold: 0.5, iterations: 500, rigidness: 1}
+
+# perfect isolates the effect: every tree has a click, so every neighbour is a real tree.
+# treex shows what survives with real clicks, where some trees have no click and a few have two
+click_methods: [perfect, treex]
+# how many neighbours to send as negative clicks. 0 is today's behaviour, for comparison
+negative_clicks: [0, 1, 3, 6]
+# only neighbours within this many metres, measured from above
+negative_radius: 6.0
+min_tree_points: 200
+iou_threshold: 0.5
+crop_size: 12.0
+crop_stride: 4.0
+crop_points: 10000
+group_number: 512
+group_size: 64

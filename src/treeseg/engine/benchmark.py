@@ -18,11 +18,12 @@ from .scoring import click_quality, score_instances, score_raw_masks, tree_sizes
 from .segment import fuse_masks, predict_click_masks, save_masks
 
 
-def prepare_tile(tile_dir: str, tile: str, csf: dict, min_tree_points: int = 200) -> dict:
-    """Load a tile and remove the ground. Tree sizes come from before removal, so lost trees still count."""
+def prepare_tile(tile_dir: str, tile: str, csf: dict, min_tree_points: int = 200, keep: np.ndarray | None = None) -> dict:
+    """Load a tile and remove the ground. Tree sizes come from before removal, so lost trees still count.
+    Pass keep (from load_masks) to reuse a saved ground removal, which saved masks and predictions line up with."""
     xyz, ids = load_tile(tile_dir, tile)
     sizes = tree_sizes(ids, min_tree_points)
-    keep = ~csf_ground_mask(xyz, **csf)
+    keep = ~csf_ground_mask(xyz, **csf) if keep is None else keep
     return {"name": tile, "xyz": xyz[keep], "ids": ids[keep], "sizes": sizes, "full_xyz": xyz, "keep": keep}
 
 
@@ -66,21 +67,26 @@ def run_benchmark(cfg: dict, device: str = "cuda") -> str:
             record(name, tile, "none", groups, pred, NO_RAW_MASKS, start)
 
     clicks = {(t["name"], m): make_clicks(m, t["xyz"], t["ids"], t["full_xyz"]) for t in tiles for m in cfg["click_methods"]}
+    #negative_clicks is a list, so one run can compare none against some. A count above 0 is added to the checkpoint's name
+    negative_counts = cfg.get("negative_clicks", [0])
     for checkpoint, checkpoint_path in cfg["checkpoints"].items():
         model = build_point_sam(checkpoint_path, cfg["group_number"], cfg["group_size"]).to(device).eval()
-        for tile in tiles:
-            for method in cfg["click_methods"]:
-                start = time.time()
-                groups = clicks[(tile["name"], method)]
-                raw_masks = predict_click_masks(model, tile["xyz"], groups, crop_size=cfg["crop_size"], crop_stride=cfg["crop_stride"],
-                                                crop_points=cfg["crop_points"], device=device)
-                pred = fuse_masks(len(tile["xyz"]), *raw_masks)
-                #the same masks scored before merging, to separate mask quality from what merging does to it
-                raw = score_raw_masks(tile["ids"], raw_masks[0], tile["sizes"], cfg["iou_threshold"])
-                del raw["best"]
-                record(checkpoint, tile, method, groups, pred, raw, start)
-                if cfg.get("save_masks"):
-                    save_masks(os.path.join(cfg["out_dir"], f"{checkpoint}_{tile['name']}_{method}_masks.npz"), groups, *raw_masks)
+        for negatives in negative_counts:
+            label = checkpoint if not negatives else f"{checkpoint}_neg{negatives}"
+            for tile in tiles:
+                for method in cfg["click_methods"]:
+                    start = time.time()
+                    groups = clicks[(tile["name"], method)]
+                    raw_masks = predict_click_masks(model, tile["xyz"], groups, crop_size=cfg["crop_size"], crop_stride=cfg["crop_stride"],
+                                                    crop_points=cfg["crop_points"], device=device, negative_clicks=negatives,
+                                                    negative_radius=cfg.get("negative_radius", 6.0))
+                    pred = fuse_masks(len(tile["xyz"]), *raw_masks)
+                    #the same masks scored before merging, to separate mask quality from what merging does to it
+                    raw = score_raw_masks(tile["ids"], raw_masks[0], tile["sizes"], cfg["iou_threshold"])
+                    del raw["best"]
+                    record(label, tile, method, groups, pred, raw, start)
+                    if cfg.get("save_masks"):
+                        save_masks(os.path.join(cfg["out_dir"], f"{label}_{tile['name']}_{method}_masks.npz"), groups, *raw_masks, keep=tile["keep"])
         del model
     return path
 

@@ -23,6 +23,7 @@ case "$(basename "$NOTEBOOK" .ipynb)/$(basename "$CONFIG" .yaml)" in
     03_benchmark/benchmark)   FOLDER=test_scoring;       NAME=f1_benchmark ;;
     03_benchmark/benchmark_clicks) FOLDER=test_scoring;  NAME=click_comparison ;;
     */diagnose_val)           FOLDER=diagnosis;          NAME=diagnose_val ;;
+    */negative_clicks)        FOLDER=diagnosis;          NAME=negative_clicks ;;
     *)                        FOLDER=other;              NAME="$(basename "$CONFIG" .yaml)" ;;
 esac
 

@@ -114,14 +114,15 @@ def plot_f1_bars(summary: pd.DataFrame, path: str, rule: str = "ignore_non_tree"
     checkpoints = list(dict.fromkeys(table["checkpoint"]))
     fig, ax = plt.subplots(figsize=(8, 4.2), dpi=200)
     width = 0.8 / max(len(checkpoints), 1)
-    for k, (checkpoint, color) in enumerate(zip(checkpoints, (MUTED, BLUE, ORANGE))):
+    #colours repeat past six checkpoints, and each bar is labelled with its value either way
+    for k, (checkpoint, color) in enumerate(zip(checkpoints, (MUTED, BLUE, ORANGE, "#1baf7a", "#6250d6", "#eda100") * 4)):
         values = [table[(table["checkpoint"] == checkpoint) & (table["clicks_from"] == s)]["f1"].mean() for s in sources]
         positions = [i + (k - (len(checkpoints) - 1) / 2) * width for i in range(len(sources))]
         ax.bar(positions, values, width * 0.92, color=color, label=checkpoint)
         for x, value in zip(positions, values):
             ax.annotate(f"{value:.3f}", (x, value), xytext=(0, 3), textcoords="offset points", ha="center", fontsize=9, color=INK)
     ax.set_xticks(range(len(sources)), [f"{s} clicks" for s in sources])
-    _style(ax, f"Instance F1 on the test strip, IoU 0.5 ({rule.replace('_', ' ')})", "", "F1")
+    _style(ax, f"Instance F1, IoU 0.5 ({rule.replace('_', ' ')})", "", "F1")
     ax.legend(frameon=False, labelcolor=MUTED)
     fig.tight_layout()
     fig.savefig(path)

@@ -10,9 +10,15 @@ from scipy.spatial import cKDTree
 
 
 def predict_click_masks(model, xyz: np.ndarray, click_groups: list[np.ndarray], crop_size: float = 12.0, crop_stride: float = 4.0,
-                        crop_points: int = 10000, device: str = "cuda", seed: int = 0) -> tuple[list, list, list, list]:
-    """Run the model. Returns, per click group: mask point indices, their logits, a score, and the seed point."""
+                        crop_points: int = 10000, device: str = "cuda", seed: int = 0, negative_clicks: int = 0,
+                        negative_radius: float = 6.0) -> tuple[list, list, list, list]:
+    """Run the model. Returns, per click group: mask point indices, their logits, a score, and the seed point.
+
+    With negative_clicks, each tree's prompt also gets up to that many "not this" clicks: the first clicks of the
+    nearest other trees within negative_radius metres (measured from above). They tell the model where to stop."""
     rng = np.random.default_rng(seed)
+    first_clicks = np.stack([group[0] for group in click_groups]) if click_groups else np.zeros((0, 3))
+    click_tree = cKDTree(first_clicks[:, :2]) if negative_clicks and len(first_clicks) > 1 else None
     point_tree = cKDTree(xyz)
     xy_tree = cKDTree(xyz[:, :2])
     origin = xyz[:, :2].min(axis=0)
@@ -39,11 +45,24 @@ def predict_click_masks(model, xyz: np.ndarray, click_groups: list[np.ndarray], 
         coords = torch.from_numpy(((points - mean) / radius).astype(np.float32)).unsqueeze(0).to(device)
         features = torch.zeros_like(coords)  # no colour: the same grey as in training
 
-        #different click counts are padded by repeating a group's first click
-        most = max(len(click_groups[g]) for g in group_ids)
-        padded = np.stack([np.vstack([click_groups[g], np.repeat(click_groups[g][:1], most - len(click_groups[g]), 0)]) for g in group_ids])
+        #each tree's own clicks are positive (1). Its neighbours' clicks, if asked for, are negative (0)
+        own, others = [], []
+        for g in group_ids:
+            own.append(click_groups[g])
+            near = np.zeros((0, 3))
+            if click_tree is not None:
+                distance, index = click_tree.query(first_clicks[g, :2], k=min(negative_clicks + 1, len(first_clicks)), distance_upper_bound=negative_radius)
+                index = index[np.isfinite(distance) & (index != g)][:negative_clicks]
+                #a click outside this crop would be clipped onto its edge, so only neighbours inside it are used
+                near = first_clicks[index][(np.abs(first_clicks[index, :2] - centre) <= half).all(axis=1)]
+            others.append(near)
+        #different click counts are padded by repeating a group's first click, which stays positive
+        most = max(len(a) + len(b) for a, b in zip(own, others))
+        padded = np.stack([np.vstack([a, b, np.repeat(a[:1], most - len(a) - len(b), 0)]) for a, b in zip(own, others)])
         prompts = np.clip((padded - mean) / radius, -1.0, 1.0).astype(np.float32)
         prompt_labels = np.ones(prompts.shape[:2], dtype=np.int64)
+        for k, (a, b) in enumerate(zip(own, others)):
+            prompt_labels[k, len(a):len(a) + len(b)] = 0
         with torch.no_grad():
             out_masks, out_scores = model.predict_masks(coords, features, torch.from_numpy(prompts).to(device),
                                                         torch.from_numpy(prompt_labels).to(device), prompt_masks=None, multimask_output=True)
@@ -162,10 +181,14 @@ def click_candidates(model, xyz: np.ndarray, group: np.ndarray, crop_size: float
             "picked": int(scores.argmax()), "click": group}
 
 
-def save_masks(path: str, clicks: list[np.ndarray], masks: list, logits: list, scores: list, seeds: list) -> None:
-    """Everything predict_click_masks returned, plus the clicks, so merging can be replayed later without a GPU."""
+def save_masks(path: str, clicks: list[np.ndarray], masks: list, logits: list, scores: list, seeds: list, keep: np.ndarray | None = None) -> None:
+    """Everything predict_click_masks returned, plus the clicks, so merging can be replayed later without a GPU.
+
+    keep marks which points of the whole tile were left after ground removal. Masks are point numbers among those,
+    and ground removal differs slightly between machines, so a replay must use this instead of removing ground again."""
     rows = [np.column_stack([np.full(len(c), g), c]) for g, c in enumerate(clicks)]
-    np.savez_compressed(path, clicks=np.vstack(rows) if rows else np.zeros((0, 4)),
+    keep = np.zeros(0, dtype=bool) if keep is None else keep
+    np.savez_compressed(path, clicks=np.vstack(rows) if rows else np.zeros((0, 4)), keep=np.packbits(keep), tile_points=len(keep),
                         lengths=np.array([len(m) for m in masks], dtype=np.int64),
                         points=np.concatenate(masks).astype(np.int32) if masks else np.zeros(0, dtype=np.int32),
                         logits=np.concatenate(logits).astype(np.float16) if logits else np.zeros(0, dtype=np.float16),
@@ -178,7 +201,8 @@ def load_masks(path: str) -> dict:
     cuts = np.cumsum(saved["lengths"])[:-1]
     clicks = saved["clicks"]
     split = (lambda values: np.split(values, cuts)) if len(saved["lengths"]) else (lambda values: [])
-    return {"clicks": [clicks[clicks[:, 0] == g, 1:] for g in np.unique(clicks[:, 0])],
+    keep = np.unpackbits(saved["keep"])[: int(saved["tile_points"])].astype(bool) if "keep" in saved and int(saved["tile_points"]) else None
+    return {"clicks": [clicks[clicks[:, 0] == g, 1:] for g in np.unique(clicks[:, 0])], "keep": keep,
             "masks": split(saved["points"].astype(np.int64)), "logits": split(saved["logits"].astype(np.float32)),
             "scores": saved["scores"].tolist(), "seeds": saved["seeds"].tolist()}
 
