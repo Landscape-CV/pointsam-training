@@ -6,13 +6,15 @@ The training recipe, click methods and mask merging are adapted from Kevin Hu's 
 
 ## Getting started
 
-Training and scoring need an NVIDIA GPU, so they run on PACE-ICE. [docs/cluster.md](docs/cluster.md) has every command; in short:
+Training runs on an NVIDIA GPU on PACE-ICE. [docs/cluster.md](docs/cluster.md) has every command; in short:
 
 1. **Clone** this repo into your ICE scratch folder.
 2. **Install** the environment with `sbatch scripts/slurm/install_env.sbatch`. It ends in `INSTALL_DONE`.
 3. **Get the data:** run `notebooks/00_dataset.ipynb`. It downloads the tiles and crops from the Hugging Face dataset [haag-lidar/wytham-isprs-tiles](https://huggingface.co/datasets/haag-lidar/wytham-isprs-tiles) into `data/wytham_isprs/`, or rebuilds them from the original scan in the dataset's `raw/` folder.
 4. **Add TreeX** with `sbatch scripts/slurm/install_treex.sbatch`, if you want TreeX clicks.
 5. **Smoke test:** `bash scripts/slurm/submit.sh notebooks/02_train.ipynb configs/experiment/smoke.yaml`, then the full run with `isprs_lora.yaml`.
+
+Inference also runs without an NVIDIA GPU, on a CPU or an Apple Silicon Mac: see [docs/no_cuda.md](docs/no_cuda.md) for the setup and what was measured.
 
 `01_auto_prompt.ipynb` runs without a GPU, for example on a Mac with the packages in `requirements.txt` plus TreeX. `04_inference_steps.ipynb` does too, once the masks from an ICE run are copied over.
 
@@ -34,14 +36,14 @@ Train and test share no trees. Val shares cut trees with both, so its numbers ar
 src/treeseg/
   data/      prepare.py (voxels, tiles, crops), download.py (Hugging Face), overview.py (dataset pictures and checks),
              dataset.py, ground.py (ground removal and its checks)
-  models/    point_sam.py, lora.py
+  models/    point_sam.py, lora.py, torkit3d_fallback.py (stands in for torkit3d when there is no CUDA)
   engine/    trainer.py, clicks.py, segment.py, scoring.py, benchmark.py
   utils/     curves.py, view3d.py
 configs/     data and experiment settings
 notebooks/   00_dataset and 01_auto_prompt (no GPU), 02_train, 03_benchmark, 04_inference_steps
-scripts/     prepare_data.py, inspect_ground.py, slurm/
+scripts/     prepare_data.py, inspect_ground.py, time_devices.py, compare_fallback.py, slurm/
 tests/       run with: python -m pytest tests
-docs/        cluster.md (PACE-ICE setup)
+docs/        cluster.md (PACE-ICE setup), no_cuda.md (running on a CPU or a Mac)
 ```
 
 ## Notebooks
