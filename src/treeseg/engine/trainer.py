@@ -21,6 +21,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from ..models.point_sam import save_checkpoint
+from ..models.torkit3d_fallback import autocast
 
 HISTORY_FIELDS = ["step", "epoch", "split", "loss", "iou_first", "val_loss", "val_iou", "val_iou_first",
                   "val_iou_pick", "lr", "minutes"]
@@ -123,7 +124,7 @@ def validate(model, loader, criterion, device, click_kind: str = "stem") -> dict
     for batch in loader:
         coords, features, gt = (batch[k].to(device) for k in ("coords", "features", "gt_masks"))
         points, labels = first_clicks(coords, gt, batch["stem_idx"].to(device), click_kind)
-        with torch.autocast("cuda"):
+        with autocast(device):
             outputs = forward_rounds(model, coords, features, gt, points, labels, is_eval=True)
             gt_flat = gt.flatten(0, 1)
             loss, aux = criterion(outputs, gt_flat)
@@ -157,7 +158,8 @@ def train(model, train_set, val_set, cfg: dict, out_dir: str, device: str = "cud
     optimizer = torch.optim.AdamW([{"params": encoder, "lr": cfg["encoder_lr"]}, {"params": rest, "lr": cfg["lr"]}],
                                   weight_decay=cfg["weight_decay"])
     base_lrs = [group["lr"] for group in optimizer.param_groups]
-    scaler = torch.amp.GradScaler("cuda")
+    #off CUDA there is no mixed precision, and a disabled scaler just passes the loss and the step through
+    scaler = torch.amp.GradScaler("cuda", enabled=torch.device(device).type == "cuda")
     criterion = Criterion(use_soft_iou=False)
 
     click_kinds, click_probs = list(cfg["click_mix"]), np.array(list(cfg["click_mix"].values()), dtype=float)
@@ -192,7 +194,7 @@ def train(model, train_set, val_set, cfg: dict, out_dir: str, device: str = "cud
             coords, features, gt = (batch[k].to(device) for k in ("coords", "features", "gt_masks"))
             kind = str(click_rng.choice(click_kinds, p=click_probs))
             points, labels = first_clicks(coords, gt, batch["stem_idx"].to(device), kind)
-            with torch.autocast("cuda"):
+            with autocast(device):
                 outputs = forward_rounds(model, coords, features, gt, points, labels)
                 loss, aux = weighted_loss(criterion, outputs, gt.flatten(0, 1), cfg["first_round_weight"])
             epoch_losses.append(loss.item())

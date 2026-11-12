@@ -2,13 +2,15 @@
 point_sam.py - load upstream Point-SAM and choose what trains.
 
 Point-SAM itself is not in this repo: clone https://github.com/zyc00/Point-SAM into thirdparty/Point-SAM
-and put the Hugging Face checkpoint (yuchen0187/Point-SAM) at the path in the config. It needs a CUDA
-GPU, because its torkit3d dependency has no CPU version.
+and put the Hugging Face checkpoint (yuchen0187/Point-SAM) at the path in the config. Its torkit3d
+dependency is CUDA-only, so without a CUDA GPU the plain-PyTorch versions in torkit3d_fallback.py stand in
+for it and the model runs on cpu or Apple mps (see docs/no_cuda.md).
 """
 import os
 import sys
 
 from .lora import add_lora, merged_lora
+from .torkit3d_fallback import install_torkit3d
 
 
 def add_point_sam_to_path(root: str = "thirdparty/Point-SAM") -> str:
@@ -17,6 +19,8 @@ def add_point_sam_to_path(root: str = "thirdparty/Point-SAM") -> str:
         raise FileNotFoundError(f"Point-SAM not found at {root}")
     if root not in sys.path:
         sys.path.insert(0, root)
+    #must come before the first pc_sam import, which is always after this function
+    install_torkit3d()
     return root
 
 
