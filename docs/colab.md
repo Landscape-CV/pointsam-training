@@ -6,21 +6,18 @@ Colab gives a GPU with no queue. From VS Code, the Colab extension runs a notebo
 
 ## Steps
 
-1. Open a notebook from this repo in VS Code, choose **Select Kernel**, then **Colab**, and pick a GPU runtime.
-2. Add this as the first cell and run it. It takes a few minutes the first time in a session.
+1. Open a notebook from this repo in VS Code, choose **Select Kernel**, then **Colab**, and pick a GPU runtime. Reuse the same runtime for the next notebook, so the files one notebook makes are there for the next.
+2. Run the notebook from the top. Its first code cell notices it is on Colab, clones this repo to `/content/pointsam-training` and runs `scripts/colab_setup.py`. That takes a few minutes the first time in a session and ends with `COLAB_SETUP_DONE`, after printing the GPU it found and the result of one test click. On a Mac or on ICE the cell does nothing.
+3. To use a config other than the notebook's default, uncomment the last line of that first cell and name the config there.
 
-```python
-import os, subprocess
-REPO = "/content/pointsam-training"
-if not os.path.isdir(REPO):
-    subprocess.run(["git", "clone", "-q", "-b", "mask-experiments", "https://github.com/Landscape-CV/pointsam-training.git", REPO], check=True)
-os.chdir(REPO)
-!python scripts/colab_setup.py
-```
+The first cell clones the branch named in its `BRANCH` line. `04_inference_steps` does not have the cell yet; paste the first code cell of `03_benchmark` at its top.
 
-It ends with `COLAB_SETUP_DONE`, after printing the GPU it found and the result of one test click. Change `mask-experiments` to the branch you want, such as `main`. Add `--train` to the last line before running `02_train`, to also fetch the stock Point-SAM weights.
+To train only on whole trees and score the result:
 
-3. Run the notebook's own cells as usual. Don't commit the added cell.
+| Notebook | Config to name in the first cell | Makes |
+|---|---|---|
+| `02_train` | `configs/experiment/isprs_lora_whole.yaml` | `results/isprs_lora_whole/best.safetensors` |
+| `03_benchmark` | `configs/experiment/whole_targets_val.yaml` | `results/whole_targets_val/summary.csv` |
 
 ## What it sets up
 

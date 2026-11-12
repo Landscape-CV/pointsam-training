@@ -12,7 +12,7 @@ num_points: 10000
 num_masks: 8
 val_num_masks: 4
 min_mask_points: 40
-train_targets: trunk_in_crop   # all (the default) or trunk_in_crop
+train_targets: trunk_in_crop   # all (the default), trunk_in_crop or whole_in_crop
 val_max_crops: 56    # the whole val strip
 
 batch_size: 1

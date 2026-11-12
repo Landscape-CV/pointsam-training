@@ -53,6 +53,9 @@ def test_build_dataset_writes_tiles_crops_and_summary(tmp_path):
         trunks = json.load(open(out / "crops" / split / "trunk_trees.json"))
         assert set(trunks) == {c["crop"] for c in row["crops"]} and any(trunks.values())
         assert all(set(trunks[f[:-4]]) <= set(np.load(out / "crops" / split / f)["instance_ids"].tolist()) for f in files)
+        #whole trees are standing trees that are nearly all inside the window
+        whole = json.load(open(out / "crops" / split / "whole_trees.json"))
+        assert set(whole) == set(trunks) and all(set(whole[c]) <= set(trunks[c]) for c in trunks)
         crop = np.load(out / "crops" / split / files[0])
         assert len(crop["xyz"]) == len(crop["instance_ids"]) <= cfg["max_crop_points"]
         #most of the flat ground is gone from the crops, and little of the trees

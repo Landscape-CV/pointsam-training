@@ -190,3 +190,11 @@ def test_only_trees_standing_in_the_crop_are_targets_when_asked(tmp_path):
     #a crop with no standing tree keeps its usual targets, so no crop is lost
     (tmp_path / "trunk_trees.json").write_text('{"a_crop000": []}')
     assert ForestCrops(str(tmp_path), num_points=1000, num_masks=8, targets="trunk_in_crop")[0]["gt_masks"].any()
+    #whole trees are the strictest rule. A crop with none falls back to standing trees, then to every tree
+    (tmp_path / "trunk_trees.json").write_text('{"a_crop000": [1, 2]}')
+    (tmp_path / "whole_trees.json").write_text('{"a_crop000": [1]}')
+    whole = ForestCrops(str(tmp_path), num_points=1000, num_masks=8, targets="whole_in_crop")[0]["gt_masks"].numpy()
+    assert len(np.unique(whole, axis=0)) == 1
+    (tmp_path / "whole_trees.json").write_text('{"a_crop000": []}')
+    fallback = ForestCrops(str(tmp_path), num_points=1000, num_masks=8, targets="whole_in_crop")[0]["gt_masks"].numpy()
+    assert len(np.unique(fallback, axis=0)) == 2
