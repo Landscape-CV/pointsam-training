@@ -19,7 +19,7 @@ The ISPRS Wytham benchmark is a terrestrial laser scan of temperate broadleaf fo
 
 This is not our data. It comes from Cherlet et al. (2026), https://doi.org/10.5281/zenodo.16875688, shared under CC BY 4.0. We re-share it under the same licence so every notebook in our code repository can run from one place. The authors' Zenodo record is the reference copy; if the two ever differ, theirs is right. If you use it, cite the original authors.
 
-Code that made and uses these files: https://github.com/nisulay/pointsam-training. Its notebook `00_dataset.ipynb` downloads this dataset, or rebuilds the tiles and crops from `raw/`, and shows each step.
+Code that made and uses these files: https://github.com/Landscape-CV/pointsam-training. Its notebook `00_dataset.ipynb` downloads this dataset, or rebuilds the tiles and crops from `raw/`, and shows each step.
 
 Model trained on it: https://huggingface.co/haag-lidar/point-sam-wytham-lora
 

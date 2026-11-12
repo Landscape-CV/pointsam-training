@@ -12,7 +12,7 @@ To send changes back, fork the repo on GitHub first and clone your fork instead;
 
 ```bash
 cd ~/scratch
-git clone https://github.com/nisulay/pointsam-training.git
+git clone https://github.com/Landscape-CV/pointsam-training.git
 cd pointsam-training
 ```
 

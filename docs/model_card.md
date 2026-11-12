@@ -15,7 +15,7 @@ tags:
 
 This is a research checkpoint from the CS 6999 HAAG LiDAR project at Georgia Tech. It is shared so teammates can reproduce and build on our results, and it is **not yet good enough to use as an automatic tree segmenter** (see Results).
 
-Code, configs and notebooks: https://github.com/nisulay/pointsam-training
+Code, configs and notebooks: https://github.com/Landscape-CV/pointsam-training
 
 ## What changed from the original
 
