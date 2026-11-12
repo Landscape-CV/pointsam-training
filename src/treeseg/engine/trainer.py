@@ -178,9 +178,14 @@ def train(model, train_set, val_set, cfg: dict, out_dir: str, device: str = "cud
         with open(history_path, "a", newline="") as f:
             csv.DictWriter(f, HISTORY_FIELDS).writerow(row)
 
+    on_colab = bool(os.environ.get("COLAB_RELEASE_TAG")) or os.path.isdir("/content/sample_data")
+
     def report(message: str):
         #the real output reaches the Slurm log as the job runs, and the kernel also copies it into the notebook
         print(message, file=sys.__stdout__, flush=True)
+        #Colab's kernel does not copy it, so there the notebook would stay silent for the whole run
+        if on_colab:
+            print(message, flush=True)
 
     start = time.time()
     step, micro, epoch, best, bad_rounds, stop = 0, 0, 0, -1.0, 0, False

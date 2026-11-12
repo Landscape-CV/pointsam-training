@@ -8,6 +8,7 @@ torkit3d is not compiled: without it, src/treeseg/models/torkit3d_fallback.py st
 Run from the repo root, after cloning the repo on Colab (docs/colab.md has the cell to paste):
     python scripts/colab_setup.py            # enough for 00, 01 (without TreeX), 03 and 04
     python scripts/colab_setup.py --train    # also the stock Point-SAM weights that 02_train starts from
+    python scripts/colab_setup.py --torkit3d # also compile the real torkit3d, for faster point sampling
 """
 import argparse
 import os
@@ -29,6 +30,7 @@ def run(*command: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", action="store_true", help="also download the stock Point-SAM weights for 02_train")
+    parser.add_argument("--torkit3d", action="store_true", help="compile the real torkit3d for faster point sampling")
     parser.add_argument("--skip-pip", action="store_true", help="leave the Python packages alone")
     parser.add_argument("--skip-data", action="store_true", help="do not download the tiles and crops")
     args = parser.parse_args()
@@ -42,6 +44,21 @@ def main() -> None:
     if not os.path.isdir("thirdparty/Point-SAM"):
         run("git", "clone", "-q", "https://github.com/zyc00/Point-SAM.git", "thirdparty/Point-SAM")
     run("git", "-C", "thirdparty/Point-SAM", "checkout", "-q", POINT_SAM_COMMIT)
+
+    #the compiled point sampling is about 30 times faster than the stand-in's Python loop. The build is the same as in
+    #scripts/slurm/install_env.sbatch. If it fails, the stand-in is used and everything else still works
+    if args.torkit3d:
+        try:
+            import torkit3d  # noqa: F401
+            print("torkit3d is already built")
+        except ImportError:
+            try:
+                run("git", "-C", "thirdparty/Point-SAM", "submodule", "update", "--init", "-q", "third_party/torkit3d")
+                subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-build-isolation", "./thirdparty/Point-SAM/third_party/torkit3d"],
+                               check=True, env={**os.environ, "FORCE_CUDA": "1", "NVCC_APPEND_FLAGS": "-std=c++20"})
+                print("torkit3d built")
+            except subprocess.CalledProcessError:
+                print("TORKIT3D BUILD FAILED: carrying on with the plain-PyTorch stand-in, which is slower but gives the same masks")
 
     #the configs look for the trained model where a training run on ICE leaves it
     from huggingface_hub import hf_hub_download
@@ -66,7 +83,9 @@ def main() -> None:
 
     from treeseg.models.point_sam import build_point_sam
     from treeseg.models.torkit3d_fallback import pick_device
+    from treeseg.models.torkit3d_fallback import real_torkit3d_usable
     device = pick_device()
+    print("point sampling:", "compiled torkit3d" if real_torkit3d_usable() else "plain-PyTorch stand-in")
     print("python", sys.version.split()[0], "| torch", torch.__version__, "| device", device,
           torch.cuda.get_device_name(0) if device == "cuda" else "")
     model = build_point_sam(trained, 512, 64).to(device).eval()
