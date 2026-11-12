@@ -10,7 +10,7 @@ Training and scoring need an NVIDIA GPU, so they run on PACE-ICE. [docs/cluster.
 
 1. **Clone** this repo into your ICE scratch folder.
 2. **Install** the environment with `sbatch scripts/slurm/install_env.sbatch`. It ends in `INSTALL_DONE`.
-3. **Get the data:** download `wytham.zip` from Zenodo and run `python scripts/prepare_data.py`.
+3. **Get the data:** run `notebooks/00_dataset.ipynb`. It downloads the tiles and crops from the Hugging Face dataset [haag-lidar/wytham-isprs-tiles](https://huggingface.co/datasets/haag-lidar/wytham-isprs-tiles) into `data/wytham_isprs/`, or rebuilds them from the original scan in the dataset's `raw/` folder.
 4. **Add TreeX** with `sbatch scripts/slurm/install_treex.sbatch`, if you want TreeX clicks.
 5. **Smoke test:** `bash scripts/slurm/submit.sh notebooks/02_train.ipynb configs/experiment/smoke.yaml`, then the full run with `isprs_lora.yaml`.
 
@@ -24,20 +24,21 @@ The [ISPRS Wytham benchmark](https://doi.org/10.5281/zenodo.16875688) (Cherlet e
 |---|---|---|---|
 | train | Training | 431 | 182 |
 | val | Picking the checkpoint and tuning | 178 | 56 |
-| test | Final score, once | 245 | 56 |
+| test | Final score, once | 245 (244 after thinning) | 56 |
 
-Train and test share no trees. Val shares cut trees with both, so its numbers are never reported as results. Data isn't stored in git: `scripts/prepare_data.py` builds it from the original PLY files.
+Train and test share no trees. Val shares cut trees with both, so its numbers are never reported as results. Data isn't stored in git. It is on Hugging Face, and `notebooks/00_dataset.ipynb` downloads it or rebuilds it from the original PLY files in `data/wytham_isprs/raw/`. `scripts/prepare_data.py` is the same build without the pictures.
 
 ## Layout
 
 ```
 src/treeseg/
-  data/      prepare.py (voxels, tiles, crops), dataset.py, ground.py (ground removal and its checks)
+  data/      prepare.py (voxels, tiles, crops), download.py (Hugging Face), overview.py (dataset pictures and checks),
+             dataset.py, ground.py (ground removal and its checks)
   models/    point_sam.py, lora.py
   engine/    trainer.py, clicks.py, segment.py, scoring.py, benchmark.py
   utils/     curves.py, view3d.py
 configs/     data and experiment settings
-notebooks/   01_auto_prompt (no GPU), 02_train, 03_benchmark, 04_inference_steps
+notebooks/   00_dataset and 01_auto_prompt (no GPU), 02_train, 03_benchmark, 04_inference_steps
 scripts/     prepare_data.py, inspect_ground.py, slurm/
 tests/       run with: python -m pytest tests
 docs/        cluster.md (PACE-ICE setup)
@@ -47,12 +48,13 @@ docs/        cluster.md (PACE-ICE setup)
 
 | Notebook | Question it answers | GPU |
 |---|---|---|
+| `00_dataset` | Where does the data come from, how is it cut into tiles and crops, and is the split clean? | No |
 | `01_auto_prompt` | Is the ground removed, and do automatic clicks land on trees? | No |
 | `02_train` | Does training work? Curves, one click before and after, one whole val tile | Yes |
 | `03_benchmark` | The numbers: crop scores with label clicks, then whole-tile scores | Yes |
 | `04_inference_steps` | The pictures: one tile through every stage (ground, clicks, masks, merging, scoring) | Live on ICE, or replays saved masks on a Mac |
 
-`03_benchmark` and `04_inference_steps` call the same code in `src/treeseg/engine/`, so the pictures and the numbers agree.
+Run them in order: each one reads what the ones before it made. `03_benchmark` and `04_inference_steps` call the same code in `src/treeseg/engine/`, so the pictures and the numbers agree.
 
 ## Clicks and scores
 
@@ -108,7 +110,7 @@ The `isprs_lora` checkpoints are in Nikhil's ICE scratch folder. A full training
 
 ## Settings worth changing
 
-All in `configs/experiment/<run>.yaml`, except crop size, which lives in `configs/data/isprs_wytham.yaml` and needs `prepare_data.py` rerun.
+All in `configs/experiment/<run>.yaml`, except crop size, which lives in `configs/data/isprs_wytham.yaml` and needs `00_dataset.ipynb` rerun in build mode.
 
 | Setting | Current | Notes |
 |---|---|---|

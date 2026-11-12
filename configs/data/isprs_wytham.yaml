@@ -1,7 +1,7 @@
 # ISPRS Wytham benchmark (Cherlet et al. 2026). The authors' strips are our split:
 # train and test share no trees and sit 27 m apart. The val strip shares cut trees with both,
 # so it is only used to pick the checkpoint, never for reported results.
-source_dir: ../Dataset/real_labelled_forests/isprs_wytham
+source_dir: data/wytham_isprs/raw   # the authors' files, unchanged. Also on Hugging Face: haag-lidar/wytham-isprs-tiles
 out_dir: data/wytham_isprs
 strips:
   train: wytham_train.ply

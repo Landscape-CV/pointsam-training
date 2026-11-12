@@ -6,6 +6,8 @@ followed across tiles and strips. Colour is not stored: the ISPRS data has none.
 """
 import json
 import os
+import shutil
+import time
 
 import laspy
 import numpy as np
@@ -126,3 +128,43 @@ def write_tiles(xyz: np.ndarray, ids: np.ndarray, out_dir: str, name: str, size:
                 json.dump(record, f, indent=2)
             records.append(record)
     return records
+
+
+def build_strip(cfg: dict, split: str, crops_only: bool = False) -> dict:
+    """One strip from the original file to tiles and crops on disk. Returns its row of the summary.
+
+    Tiles keep every point, because the benchmark runs the cloth filter on them itself. Crops have the ground
+    removed by the same filter, so training and validation see what the model sees in real use."""
+    xyz, ids = load_strip(os.path.join(cfg["source_dir"], cfg["strips"][split]))
+    vox_xyz, vox_ids = voxelize(xyz, ids, cfg["voxel_m"])
+    n_raw = len(xyz)
+    del xyz, ids
+
+    tile_dir = os.path.join(cfg["out_dir"], "tiles")
+    crop_dir = os.path.join(cfg["out_dir"], "crops", split)
+    tiles = [] if crops_only else write_tiles(vox_xyz, vox_ids, tile_dir, f"isprs_{split}", cfg["tile_m"])
+
+    ground = ground_by_tile(vox_xyz, cfg["tile_m"], cfg["csf"])
+    keep_xyz, keep_ids = vox_xyz[~ground], vox_ids[~ground]
+    shutil.rmtree(crop_dir, ignore_errors=True)  # a rebuild can make fewer crops, so old ones must not linger
+    crops = write_crops(keep_xyz, keep_ids, crop_dir, f"isprs_{split}", cfg["crop_m"], cfg["stride_m"],
+                        cfg["min_crop_points"], cfg["max_crop_points"], cfg["min_crop_trees"], cfg["seed"])
+    return {"raw_points": n_raw, "voxels": len(vox_xyz), "removed_as_ground": float(ground.mean()),
+            "kept_tree_fraction": round(float((keep_ids > 0).mean()), 3), "tree_points_lost": float(ground[vox_ids > 0].mean()),
+            "tiles_written": len(tiles), "crops": crops}
+
+
+def build_dataset(cfg: dict, crops_only: bool = False) -> dict:
+    """Every strip in the config, then summary.json. This is the whole of scripts/prepare_data.py and of
+    the build path in notebooks/00_dataset.ipynb, so both make the same files."""
+    summary = {"config": cfg, "strips": {}}
+    for split in cfg["strips"]:
+        start = time.time()
+        row = build_strip(cfg, split, crops_only)
+        print(f"{split}: {row['raw_points']:,} points, {row['voxels']:,} after thinning, {row['removed_as_ground']:.1%} removed as ground, "
+              f"{row['tree_points_lost']:.2%} of tree points lost, {row['kept_tree_fraction']:.0%} of the rest is tree, "
+              f"{row.pop('tiles_written')} tiles written, {len(row['crops'])} crops, {time.time() - start:.0f}s", flush=True)
+        summary["strips"][split] = row
+    with open(os.path.join(cfg["out_dir"], "summary.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+    return summary

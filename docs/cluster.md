@@ -26,15 +26,23 @@ It downloads Point-SAM and its weights into `thirdparty/`, builds the conda envi
 
 ### 3. Get the data
 
-Download the ISPRS Wytham strips (3.2 GB) from [Zenodo](https://doi.org/10.5281/zenodo.16875688) into the folder `configs/data/isprs_wytham.yaml` reads from, next to the repo:
+Everything is in one Hugging Face dataset, [haag-lidar/wytham-isprs-tiles](https://huggingface.co/datasets/haag-lidar/wytham-isprs-tiles): the authors' original scan in `raw/`, and the tiles and crops we cut from it. It is public, so no login is needed. The data is from Cherlet et al. (2026), CC BY 4.0, https://doi.org/10.5281/zenodo.16875688.
+
+`notebooks/00_dataset.ipynb` does this step with pictures and checks, and is the place to look to understand the data. On ICE the two commands below do the same thing from a terminal.
+
+To train and score, the tiles and crops are enough (0.9 GB). From the repo root:
 
 ```bash
-mkdir -p ../Dataset/real_labelled_forests/isprs_wytham && cd ../Dataset/real_labelled_forests/isprs_wytham
-wget -O wytham.zip "https://zenodo.org/records/16875688/files/wytham.zip?download=1"
-unzip wytham.zip
+env/bin/hf download haag-lidar/wytham-isprs-tiles --repo-type dataset --local-dir data/wytham_isprs --include "tiles/*" --include "crops/*" --include summary.json
 ```
 
-Move `wytham_train.ply`, `wytham_val.ply` and `wytham_test.ply` into this folder if the zip put them in a subfolder. Then build tiles and crops on a compute node:
+To rebuild them from the original scan, get `raw/` as well (3.3 GB):
+
+```bash
+env/bin/hf download haag-lidar/wytham-isprs-tiles --repo-type dataset --local-dir data/wytham_isprs --include "raw/*"
+```
+
+Then build tiles and crops on a compute node (only needed for a rebuild):
 
 ```bash
 cd ~/scratch/pointsam-training
