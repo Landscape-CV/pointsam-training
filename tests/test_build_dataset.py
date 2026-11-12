@@ -47,8 +47,12 @@ def test_build_dataset_writes_tiles_crops_and_summary(tmp_path):
         assert os.path.exists(out / "tiles" / f"isprs_{split}_t00_00_scan.laz")
         labels = np.load(out / "tiles" / f"isprs_{split}_t00_00_instances.npy")
         assert len(labels) == row["voxels"] and set(np.unique(labels)) == {-1, 1, 2, 3, 4}
-        files = sorted(os.listdir(out / "crops" / split))
+        files = sorted(f for f in os.listdir(out / "crops" / split) if f.endswith(".npz"))
         assert len(files) == len(row["crops"]) > 0
+        #each crop also lists the trees that stand inside its window, and every such tree is in the crop
+        trunks = json.load(open(out / "crops" / split / "trunk_trees.json"))
+        assert set(trunks) == {c["crop"] for c in row["crops"]} and any(trunks.values())
+        assert all(set(trunks[f[:-4]]) <= set(np.load(out / "crops" / split / f)["instance_ids"].tolist()) for f in files)
         crop = np.load(out / "crops" / split / files[0])
         assert len(crop["xyz"]) == len(crop["instance_ids"]) <= cfg["max_crop_points"]
         #most of the flat ground is gone from the crops, and little of the trees

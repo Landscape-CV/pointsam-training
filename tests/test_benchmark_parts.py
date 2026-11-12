@@ -322,3 +322,65 @@ def test_neighbouring_clicks_are_sent_as_negative_clicks():
     #a tree further away than the radius is never a negative
     predict_click_masks(model, xyz, clicks, device="cpu", crop_stride=12.0, negative_clicks=3, negative_radius=6.0)
     assert model.labels.sum(dim=1).min() >= 1 and model.labels.shape[1] <= 2
+
+
+def test_a_crop_can_be_centred_on_each_click():
+    from treeseg.engine.segment import predict_click_masks
+
+    rng = np.random.default_rng(0)
+    xyz = np.vstack([rng.normal([3, 3, 3], 0.3, (2000, 3)), rng.normal([5, 3, 3], 0.3, (2000, 3))])
+    clicks = [np.array([[3.0, 3.0, 3.0]]), np.array([[5.0, 3.0, 3.0]])]
+    model = RecordingModel()
+    predict_click_masks(model, xyz, clicks, device="cpu", crop_stride=12.0)
+    assert model.prompts.shape[0] == 2  # on the grid, both clicks share one crop
+    masks, _, _, seeds = predict_click_masks(model, xyz, clicks, device="cpu", crop_stride=12.0, centre_on_click=True)
+    assert model.prompts.shape[0] == 1 and len(masks) == len(seeds) == 2  # one crop per click
+
+
+class WrongChoiceModel(FakeModel):
+    """Rates its tight first candidate highest, though the second one is the whole tree."""
+
+    def predict_masks(self, coords, features, prompts, labels, prompt_masks=None, multimask_output=True):
+        three, _ = super().predict_masks(coords, features, prompts, labels, prompt_masks, multimask_output)
+        three = torch.stack([three[:, 1] - 0.1, three[:, 1], three[:, 2]], dim=1)
+        return three, torch.tensor([[0.9, 0.1, 0.2]]).repeat(len(prompts), 1)
+
+
+def test_the_kept_candidate_can_be_the_models_choice_the_first_or_the_best_given_the_truth():
+    from treeseg.engine.segment import predict_click_masks
+
+    rng = np.random.default_rng(0)
+    xyz = rng.normal([3, 3, 3], 0.3, (2000, 3))
+    click = [np.array([[3.0, 3.0, 3.0]])]
+    whole = predict_click_masks(FakeModel(), xyz, click, device="cpu")[0][0]
+    ids = np.full(len(xyz), -1)
+    ids[whole] = 7
+    by_score = predict_click_masks(WrongChoiceModel(), xyz, click, device="cpu")[0][0]
+    by_first = predict_click_masks(WrongChoiceModel(), xyz, click, device="cpu", pick="first")[0][0]
+    by_truth = predict_click_masks(WrongChoiceModel(), xyz, click, device="cpu", pick="truth", truth_ids=ids)[0][0]
+    assert 0 < len(by_score) < len(whole) and np.array_equal(by_first, by_score)
+    assert np.array_equal(np.sort(by_truth), np.sort(whole))
+    with pytest.raises(ValueError):
+        predict_click_masks(FakeModel(), xyz, click, device="cpu", pick="truth")
+
+
+def test_variants_get_their_own_rows_and_ground_removal_is_saved_once(tmp_path, monkeypatch):
+    from treeseg.engine import benchmark
+
+    rng = np.random.default_rng(0)
+    xyz = np.vstack([rng.normal([3, 3, 3], 0.3, (2000, 3)), rng.normal([9, 9, 3], 0.3, (2000, 3))])
+    ids = np.r_[np.full(2000, 1), np.full(2000, 2)]
+    calls = []
+    monkeypatch.setattr(benchmark, "load_tile", lambda *args: (xyz, ids))
+    monkeypatch.setattr(benchmark, "csf_ground_mask", lambda points, **csf: calls.append(1) or np.zeros(len(points), dtype=bool))
+    monkeypatch.setattr(benchmark, "build_point_sam", lambda *args: FakeModel())
+    monkeypatch.setattr(FakeModel, "to", lambda self, device: self, raising=False)
+    monkeypatch.setattr(FakeModel, "eval", lambda self: self, raising=False)
+    cfg = {"out_dir": str(tmp_path / "out"), "ground_cache": str(tmp_path / "ground"), "tile_dir": "", "tiles": ["t"], "csf": {"resolution": 0.5},
+           "min_tree_points": 200, "checkpoints": {"fake": ""}, "click_methods": ["perfect"], "iou_threshold": 0.5, "crop_size": 12.0,
+           "crop_stride": 4.0, "crop_points": 10000, "group_number": 512, "group_size": 64,
+           "variants": [{"name": "base"}, {"name": "centred", "centre_on_click": True}, {"name": "best", "pick": "truth"}]}
+    table = benchmark.summarise(benchmark.run_benchmark(cfg, device="cpu"))
+    assert sorted(table["checkpoint"].unique()) == ["fake_base", "fake_best", "fake_centred"]
+    benchmark.run_benchmark(cfg, device="cpu")
+    assert len(calls) == 1 and (tmp_path / "ground" / "t_keep_resolution0.5.npy").exists()  # the second run reused the saved one

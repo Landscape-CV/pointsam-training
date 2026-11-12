@@ -54,12 +54,32 @@ def in_window(xyz: np.ndarray, x0: float, y0: float, size: float) -> np.ndarray:
     return (xyz[:, 0] >= x0) & (xyz[:, 0] < x0 + size) & (xyz[:, 1] >= y0) & (xyz[:, 1] < y0 + size)
 
 
+TRUNK_FILE = "trunk_trees.json"
+
+
+def trunk_positions(xyz: np.ndarray, ids: np.ndarray, base_m: float = 1.0) -> dict[int, np.ndarray]:
+    """Where each tree stands: the middle (x, y) of its lowest metre, taken from the whole strip."""
+    tree = ids > 0
+    order = np.argsort(ids[tree], kind="stable")
+    points, labels = xyz[tree][order], ids[tree][order]
+    trees, starts, counts = np.unique(labels, return_index=True, return_counts=True)
+    positions = {}
+    for label, start, count in zip(trees.tolist(), starts.tolist(), counts.tolist()):
+        p = points[start:start + count]
+        positions[label] = np.median(p[p[:, 2] <= p[:, 2].min() + base_m, :2], axis=0)
+    return positions
+
+
 def write_crops(xyz: np.ndarray, ids: np.ndarray, out_dir: str, name: str, size: float, stride: float,
                 min_points: int, max_points: int, min_trees: int, seed: int = 0) -> list[dict]:
-    """Slide a square window over the strip and save each usable window as an .npz crop."""
+    """Slide a square window over the strip and save each usable window as an .npz crop.
+
+    Also writes trunk_trees.json: for each crop, the trees that stand inside its window. A crop cuts through many
+    crowns, so a lot of the trees in it are pieces whose trunk is somewhere else, and training can leave those out."""
     os.makedirs(out_dir, exist_ok=True)
     rng = np.random.default_rng(seed)
-    records = []
+    records, trunks = [], {}
+    stands = trunk_positions(xyz, ids)
     for x0 in window_starts(xyz[:, 0].min(), xyz[:, 0].max(), size, stride):
         for y0 in window_starts(xyz[:, 1].min(), xyz[:, 1].max(), size, stride):
             idx = np.flatnonzero(in_window(xyz, x0, y0, size))
@@ -73,6 +93,9 @@ def write_crops(xyz: np.ndarray, ids: np.ndarray, out_dir: str, name: str, size:
                      xyz=xyz[idx].astype(np.float32), instance_ids=ids[idx].astype(np.int32))
             records.append({"crop": crop_name, "origin_xy": [float(x0), float(y0)],
                             "n_points": int(len(idx)), "n_trees": n_trees})
+            trunks[crop_name] = [tree for tree, (x, y) in stands.items() if x0 <= x < x0 + size and y0 <= y < y0 + size]
+    with open(os.path.join(out_dir, TRUNK_FILE), "w") as f:
+        json.dump(trunks, f)
     return records
 
 

@@ -1,0 +1,26 @@
+# Does training only on trees that stand in the crop give better masks? Val tiles only, no test strip.
+# Scores the usual model next to the one trained with train_targets: trunk_in_crop, on the same tiles and ground removal.
+tile_dir: data/wytham_isprs/tiles
+tiles: [isprs_val_t00_00, isprs_val_t00_01, isprs_val_t00_02]
+out_dir: results/trunk_targets_val
+
+checkpoints:
+  isprs_lora: results/isprs_lora/best.safetensors
+  isprs_lora_trunk: results/isprs_lora_trunk/best.safetensors
+
+csf: {resolution: 0.5, threshold: 0.5, iterations: 500, rigidness: 1}
+ground_cache: results/ground
+
+click_methods: [perfect, treex]
+
+variants:
+  - {name: base}                    # as in real use: the model picks its own mask
+  - {name: best_of_3, pick: truth}  # how much is still lost to the model's choice of mask
+
+min_tree_points: 200
+iou_threshold: 0.5
+crop_size: 12.0
+crop_stride: 4.0
+crop_points: 10000
+group_number: 512
+group_size: 64

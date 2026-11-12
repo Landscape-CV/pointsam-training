@@ -9,6 +9,7 @@ dropping is gone too: crops already had ground removed by the cloth filter, as i
 plants stay in and the model learns they aren't trees.
 """
 import glob
+import json
 import os
 
 import numpy as np
@@ -86,12 +87,16 @@ def subsample(xyz: np.ndarray, ids: np.ndarray, n: int, rng: np.random.Generator
     return xyz[idx], ids[idx]
 
 
-def choose_masks(ids: np.ndarray, num_masks: int, min_points: int, rng: np.random.Generator) -> np.ndarray:
-    """Boolean masks (num_masks, N), one tree each. Trees repeat if the crop has fewer than num_masks."""
+def choose_masks(ids: np.ndarray, num_masks: int, min_points: int, rng: np.random.Generator, allowed=None) -> np.ndarray:
+    """Boolean masks (num_masks, N), one tree each. Trees repeat if the crop has fewer than num_masks.
+    With allowed (tree ids), only those trees are targets, unless the crop has none of them."""
     trees, counts = np.unique(ids[ids > 0], return_counts=True)
     #a tiny fragment at the crop edge is not a fair target, unless it is all the crop has
     big = trees[counts >= min_points]
     trees = big if len(big) else trees
+    if allowed is not None:
+        standing = trees[np.isin(trees, allowed)]
+        trees = standing if len(standing) else trees
     if len(trees) == 0:
         masks = np.zeros((num_masks, len(ids)), dtype=bool)
     else:
@@ -107,10 +112,21 @@ def choose_masks(ids: np.ndarray, num_masks: int, min_points: int, rng: np.rando
 
 class ForestCrops(Dataset):
     def __init__(self, crop_dir: str, num_points: int = 10000, num_masks: int = 8, min_mask_points: int = 40,
-                 augmentation: dict | None = None, resample_each_epoch: bool = False, seed: int = 0):
+                 augmentation: dict | None = None, resample_each_epoch: bool = False, seed: int = 0, targets: str = "all"):
+        """targets "all" lets any tree in the crop be a target, cut pieces included. "trunk_in_crop" keeps only trees
+        that stand inside the crop's window, read from trunk_trees.json, which the dataset build writes."""
         self.files = sorted(glob.glob(os.path.join(crop_dir, "*.npz")))
         if not self.files:
             raise FileNotFoundError(f"no crops in {crop_dir}")
+        if targets not in ("all", "trunk_in_crop"):
+            raise ValueError(f"targets must be all or trunk_in_crop, got {targets!r}")
+        self.trunks = None
+        if targets == "trunk_in_crop":
+            path = os.path.join(crop_dir, "trunk_trees.json")
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"{path} is missing: download the dataset again, or rebuild it with 00_dataset.ipynb")
+            with open(path) as f:
+                self.trunks = json.load(f)
         self.num_points = num_points
         self.num_masks = num_masks
         self.min_mask_points = min_mask_points
@@ -129,7 +145,8 @@ class ForestCrops(Dataset):
         if self.augmentation:
             xyz, ids = augment(xyz, ids, self.augmentation, rng)
         xyz, ids = subsample(xyz, ids, self.num_points, rng)
-        masks = choose_masks(ids, self.num_masks, self.min_mask_points, rng)
+        allowed = None if self.trunks is None else self.trunks[os.path.splitext(os.path.basename(self.files[index]))[0]]
+        masks = choose_masks(ids, self.num_masks, self.min_mask_points, rng, allowed)
         stems = np.array([stem_clicks(xyz, mask) for mask in masks], dtype=np.int64)
         return {"coords": torch.from_numpy(to_unit_sphere(xyz)),
                 "features": torch.zeros(self.num_points, 3),

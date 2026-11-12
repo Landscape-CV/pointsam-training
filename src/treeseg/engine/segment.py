@@ -11,27 +11,41 @@ from scipy.spatial import cKDTree
 
 def predict_click_masks(model, xyz: np.ndarray, click_groups: list[np.ndarray], crop_size: float = 12.0, crop_stride: float = 4.0,
                         crop_points: int = 10000, device: str = "cuda", seed: int = 0, negative_clicks: int = 0,
-                        negative_radius: float = 6.0) -> tuple[list, list, list, list]:
+                        negative_radius: float = 6.0, centre_on_click: bool = False, pick: str = "score",
+                        truth_ids: np.ndarray | None = None) -> tuple[list, list, list, list]:
     """Run the model. Returns, per click group: mask point indices, their logits, a score, and the seed point.
 
     With negative_clicks, each tree's prompt also gets up to that many "not this" clicks: the first clicks of the
-    nearest other trees within negative_radius metres (measured from above). They tell the model where to stop."""
+    nearest other trees within negative_radius metres (measured from above). They tell the model where to stop.
+
+    centre_on_click gives every click its own crop with the click in the middle. Otherwise clicks share crops on a
+    grid, and a click can sit up to crop_stride / 2 from its crop's centre.
+
+    pick says which of the model's 3 candidate masks is kept: "score" is the one the model rates highest, as in
+    real use. "first" is always candidate 0. "truth" is the one that best overlaps the true tree under the click
+    (measured on the crop's sampled points, from truth_ids), which shows what a perfect choice would be worth."""
+    if pick not in ("score", "first", "truth") or (pick == "truth" and truth_ids is None):
+        raise ValueError(f"pick must be score, first or truth (with truth_ids), got {pick!r}")
     rng = np.random.default_rng(seed)
     first_clicks = np.stack([group[0] for group in click_groups]) if click_groups else np.zeros((0, 3))
     click_tree = cKDTree(first_clicks[:, :2]) if negative_clicks and len(first_clicks) > 1 else None
     point_tree = cKDTree(xyz)
+    seed_points = point_tree.query(first_clicks)[1] if len(first_clicks) else np.zeros(0, dtype=np.int64)
     xy_tree = cKDTree(xyz[:, :2])
     origin = xyz[:, :2].min(axis=0)
     half = crop_size / 2
 
-    #clicks sharing a stride cell share one crop, which keeps a click within stride/2 of its crop centre
-    crops: dict[tuple, list[int]] = {}
-    for g, group in enumerate(click_groups):
-        crops.setdefault(tuple(np.floor((group[0, :2] - origin) / crop_stride).astype(int).tolist()), []).append(g)
+    if centre_on_click:
+        crops = [(group[0, :2], [g]) for g, group in enumerate(click_groups)]
+    else:
+        #clicks sharing a stride cell share one crop, which keeps a click within stride/2 of its crop centre
+        cells: dict[tuple, list[int]] = {}
+        for g, group in enumerate(click_groups):
+            cells.setdefault(tuple(np.floor((group[0, :2] - origin) / crop_stride).astype(int).tolist()), []).append(g)
+        crops = [(origin + (np.asarray(cell) + 0.5) * crop_stride, group_ids) for cell, group_ids in cells.items()]
 
     masks, logits, scores, seeds = [], [], [], []
-    for cell, group_ids in crops.items():
-        centre = origin + (np.asarray(cell) + 0.5) * crop_stride
+    for centre, group_ids in crops:
         idx = np.asarray(xy_tree.query_ball_point(centre, r=half * np.sqrt(2)), dtype=np.int64)
         if len(idx) == 0:
             continue
@@ -68,6 +82,16 @@ def predict_click_masks(model, xyz: np.ndarray, click_groups: list[np.ndarray], 
                                                         torch.from_numpy(prompt_labels).to(device), prompt_masks=None, multimask_output=True)
         #of the 3 candidates keep the one the model rates highest, as inference has no answer to check against
         best = torch.argmax(out_scores, dim=1)
+        if pick == "first":
+            best = torch.zeros_like(best)
+        elif pick == "truth":
+            candidates = (out_masks > 0).cpu().numpy()
+            for k, g in enumerate(group_ids):
+                tree = truth_ids[seed_points[g]]
+                if tree > 0:  # a click that is not on a tree has no right answer, so the model's choice stands
+                    target = truth_ids[sample] == tree
+                    overlap = (candidates[k] & target).sum(axis=1) / np.maximum((candidates[k] | target).sum(axis=1), 1)
+                    best[k] = int(overlap.argmax())
         row = torch.arange(len(group_ids), device=out_scores.device)
         crop_logits = out_masks[row, best].float().cpu().numpy()
         crop_scores = out_scores[row, best].float().cpu().numpy()
@@ -80,7 +104,7 @@ def predict_click_masks(model, xyz: np.ndarray, click_groups: list[np.ndarray], 
             masks.append(idx[on])
             logits.append(crop_logits[k][on])
             scores.append(float(crop_scores[k]))
-            seeds.append(int(point_tree.query(click_groups[g][0])[1]))
+            seeds.append(int(seed_points[g]))
     return masks, logits, scores, seeds
 
 

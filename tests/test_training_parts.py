@@ -173,3 +173,20 @@ def test_curves_are_written_from_a_partial_run(tmp_path):
     paths = make_all(str(history), str(tmp_path / "figures"))
     for path in paths.values():
         assert (tmp_path / "figures" / path.split("/")[-1]).stat().st_size > 0
+
+
+def test_only_trees_standing_in_the_crop_are_targets_when_asked(tmp_path):
+    rng = np.random.default_rng(0)
+    xyz = rng.uniform(0, 12, (3000, 3)).astype(np.float32)
+    ids = np.r_[np.full(1000, 1), np.full(1000, 2), np.full(1000, -1)].astype(np.int32)
+    np.savez(tmp_path / "a_crop000.npz", xyz=xyz, instance_ids=ids)
+    with pytest.raises(FileNotFoundError):
+        ForestCrops(str(tmp_path), num_points=1000, targets="trunk_in_crop")
+    (tmp_path / "trunk_trees.json").write_text('{"a_crop000": [2]}')
+    item = ForestCrops(str(tmp_path), num_points=1000, num_masks=8, targets="trunk_in_crop")[0]
+    assert len(np.unique(item["gt_masks"].numpy(), axis=0)) == 1  # every target is tree 2
+    everything = ForestCrops(str(tmp_path), num_points=1000, num_masks=8)[0]
+    assert len(np.unique(everything["gt_masks"].numpy(), axis=0)) == 2
+    #a crop with no standing tree keeps its usual targets, so no crop is lost
+    (tmp_path / "trunk_trees.json").write_text('{"a_crop000": []}')
+    assert ForestCrops(str(tmp_path), num_points=1000, num_masks=8, targets="trunk_in_crop")[0]["gt_masks"].any()

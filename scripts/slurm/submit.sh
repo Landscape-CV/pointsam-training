@@ -24,6 +24,9 @@ case "$(basename "$NOTEBOOK" .ipynb)/$(basename "$CONFIG" .yaml)" in
     03_benchmark/benchmark_clicks) FOLDER=test_scoring;  NAME=click_comparison ;;
     */diagnose_val)           FOLDER=diagnosis;          NAME=diagnose_val ;;
     */negative_clicks)        FOLDER=diagnosis;          NAME=negative_clicks ;;
+    */isprs_lora_trunk)       FOLDER=target_test;        NAME=trunk_targets ;;
+    */trunk_targets_val)      FOLDER=target_test;        NAME=trunk_targets_val ;;
+    */mask_experiments)       FOLDER=diagnosis;          NAME=mask_experiments ;;
     *)                        FOLDER=other;              NAME="$(basename "$CONFIG" .yaml)" ;;
 esac
 

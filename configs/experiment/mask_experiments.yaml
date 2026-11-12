@@ -1,0 +1,35 @@
+# Why are the masks poor even with a perfect click? Three things to try, with no training. Val tiles only.
+#   1. Where the crop sits: on a grid (today), or centred on the click.
+#   2. Which of the model's 3 candidate masks is kept: its own top score (today), or the best one given the truth.
+#   3. How big the crop is: 8, 12 (today) or 16 m.
+# Each variant's name is added to the checkpoint name in the results, so compare rows against isprs_lora_base.
+tile_dir: data/wytham_isprs/tiles
+tiles: [isprs_val_t00_00, isprs_val_t00_01, isprs_val_t00_02]
+out_dir: results/mask_experiments
+
+checkpoints:
+  isprs_lora: results/isprs_lora/best.safetensors
+
+csf: {resolution: 0.5, threshold: 0.5, iterations: 500, rigidness: 1}
+# the ground removal is saved here the first time and reused, so every run scores the same points
+ground_cache: results/ground
+
+# perfect isolates the masks: every tree has a click on it. treex shows what carries over to real clicks
+click_methods: [perfect, treex]
+
+variants:
+  - {name: base}                                             # today's settings
+  - {name: base_again}                                       # the same again: any difference from base is noise
+  - {name: centred, centre_on_click: true}                   # one crop per click, click in the middle
+  - {name: best_of_3, pick: truth}                           # upper bound on choosing the mask better
+  - {name: centred_best_of_3, centre_on_click: true, pick: truth}
+  - {name: centred_8m, centre_on_click: true, crop_size: 8.0}
+  - {name: centred_16m, centre_on_click: true, crop_size: 16.0}
+
+min_tree_points: 200
+iou_threshold: 0.5
+crop_size: 12.0
+crop_stride: 4.0
+crop_points: 10000
+group_number: 512
+group_size: 64
